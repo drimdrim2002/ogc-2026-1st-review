@@ -1,0 +1,598 @@
+<article class="chapter" id="ch3">
+  <header>
+    <div class="kicker">3 / 8</div>
+    <h1>추상 사전최적화: 모양을 숫자 하나로 바꿔 먼저 풀어 본다</h1>
+  </header>
+
+  <section>
+    <p class="lead">2장에서 투입 순서는 "모양을 지운 단순한 문제를 먼저 풀어서" 얻는다고 했습니다. 이 장은 그 단순한 문제가 정확히 무엇이고, 코드가 그것을 어떻게 푸는지를 다룹니다. 대상 코드는 <span class="mono">src/solver/preoptimize.rs</span> 한 파일(948줄)입니다.</p>
+    <p>순서는 이렇습니다. 실제 블록 하나가 숫자 하나로 바뀌는 과정을 먼저 보고, 그 숫자들로 세운 제약과 목적 함수를 봅니다. 그다음 초기해를 만드는 방법, SA로 고치는 방법, 구현 방식, 결과가 2단계로 넘어가는 지점, 이 근사의 한계를 차례로 봅니다.</p>
+    <p>이 기기에서는 솔버를 실행할 수 없습니다. 그래서 이 장의 수치 중 "재현"이라고 적은 것은 <span class="mono">preoptimize.rs</span>의 절차를 제가 Python으로 다시 구현해 학습 데이터에 돌린 결과이고, 솔버가 실제로 낸 값이 아닙니다. 식과 절차 자체는 모두 코드에서 확인한 것입니다.</p>
+  </section>
+
+  <!-- ================= 1부 ================= -->
+  <div class="part">1부 · 단순화한 문제: 블록이 숫자 하나가 된다</div>
+
+  <section>
+    <h2>블록 하나에서 무엇이 남고 무엇이 지워지나</h2>
+    <p>1장에서 본 <span class="mono">prelim_prob_1</span>의 <span class="mono">blocks[2]</span>를 다시 봅니다. 추상 문제는 일정과 선호에 관한 값은 그대로 두고, 모양만 숫자 하나로 바꿉니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>입력 필드</th><th>원래 값</th><th>추상 문제에서</th></tr></thead>
+      <tbody>
+        <tr><td>R, P, D</td><td>30, 6, 36</td><td>그대로 사용</td></tr>
+        <tr><td><code>workload</code></td><td>47</td><td>그대로 사용 (Z₂)</td></tr>
+        <tr><td><code>bay_preferences</code></td><td>[7, 43, 50]</td><td>그대로 사용 (Z₃)</td></tr>
+        <tr><td><code>shape</code></td><td>방향 8개 × 층 2개 × 꼭짓점 4~6개</td><td>베이마다 숫자 하나: <strong>근사 점유 넓이 a</strong>. 이 블록은 세 베이 모두 182.6</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>근사 점유 넓이(approximate occupancy)는 "이 블록을 이 베이에 놓으면 바닥을 대략 얼마나 쓰는가"를 나타내는 값입니다. 블록 i, 베이 j마다 하나씩 있어서 <span class="mono">a<sub>ij</sub></span>로 씁니다. 좌표도 방향도 층도 이 숫자 하나로 대신합니다.</p>
+  </section>
+
+  <section>
+    <h2>근사 점유 넓이 a를 구하는 식</h2>
+    <p>방향 하나에 대해 세 가지를 잽니다.</p>
+    <ul class="plain">
+      <li><strong>합집합 넓이 A<sub>union</sub>:</strong> 모든 층을 위에서 내려다보고 겹쳐 그렸을 때 덮이는 넓이입니다. 층 구분을 없앤 블록의 그림자 넓이입니다.</li>
+      <li><strong>바운딩 박스 넓이 A<sub>bbox</sub>:</strong> 모든 층의 꼭짓점을 감싸는, 축에 나란한 가장 작은 직사각형의 넓이입니다.</li>
+      <li><strong>둘레 L:</strong> 합집합의 경계선 길이입니다.</li>
+    </ul>
+    <div class="formula">a = A<sub>union</sub> + α · (A<sub>bbox</sub> − A<sub>union</sub>) + β · L &nbsp;&nbsp; (α = 0.5, β = 0.1)</div>
+    <p>첫 항은 실제로 덮는 넓이입니다. 둘째 항은 바운딩 박스 안의 빈 틈 가운데 절반을 "어차피 남이 쓰기 어려운 자리"로 보고 더합니다. 오목하거나 비스듬히 길쭉한 모양일수록 이 항이 큽니다. 셋째 항은 경계가 길고 복잡할수록 빽빽하게 붙이기 어렵다는 점을 둘레에 비례해 더합니다. 세 항의 뜻은 저자의 보고서 설명을 옮긴 것입니다.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 250" role="img" aria-label="prelim_prob_1의 blocks[2]를 방향 0과 방향 1로 그리고 각각의 바운딩 박스를 점선으로 표시한 그림. 방향 0은 바운딩 박스 넓이 230.8에 a가 182.6이고, 방향 1은 바운딩 박스 넓이 319.5에 a가 226.9이다. 둘 중 작은 182.6이 이 블록의 값이 된다.">
+        <text x="24" y="22" font-size="12" font-weight="700" fill="currentColor">방향 0</text>
+        <text x="209.7" y="52" font-size="11" class="t-crane" text-anchor="end">바운딩 박스 20.6 × 11.2</text>
+        <rect x="24" y="60" width="185.7" height="100.6" class="s-crane" stroke-width="1.5" stroke-dasharray="5 4"/>
+        <polygon points="209.7,160.6 196.1,60.0 106.8,61.5 24.5,61.8 24.0,70.0 190.7,158.0" class="f-hull" stroke-width="1.5"/>
+        <polygon points="106.8,61.5 24.5,61.8 24.0,70.0 115.8,118.4" class="f-steel" stroke-width="1"/>
+        <text x="30" y="150" font-size="11" class="t-crane">빈 틈 107.3</text>
+        <text x="24" y="188" font-size="11" class="t-muted">합집합 123.5 · 박스 230.8 · 둘레 54.4</text>
+        <text x="24" y="208" font-size="12" fill="currentColor">123.5 + 53.7 + 5.4 = <tspan font-weight="700">182.6</tspan></text>
+
+        <text x="262" y="22" font-size="12" font-weight="700" fill="currentColor">방향 1 (45° 돌린 모양)</text>
+        <text x="462.9" y="38" font-size="11" class="t-crane" text-anchor="end">바운딩 박스 22.3 × 14.3</text>
+        <rect x="262" y="46" width="200.9" height="128.8" class="s-crane" stroke-width="1.5" stroke-dasharray="5 4"/>
+        <polygon points="462.9,107.6 382.1,46.0 320.1,110.3 262.0,168.6 267.5,174.8 447.6,119.1" class="f-hull" stroke-width="1.5"/>
+        <polygon points="320.1,110.3 262.0,168.6 267.5,174.8 366.6,144.2" class="f-steel" stroke-width="1"/>
+        <text x="456.9" y="166" font-size="11" class="t-crane" text-anchor="end">빈 틈 196.0</text>
+        <text x="262" y="188" font-size="11" class="t-muted">합집합 123.5 · 박스 319.5 · 둘레 54.4</text>
+        <text x="262" y="208" font-size="12" fill="currentColor">123.5 + 98.0 + 5.4 = <tspan font-weight="700">226.9</tspan></text>
+
+        <text x="500" y="22" font-size="12" font-weight="700" fill="currentColor">이 블록의 값</text>
+        <text x="500" y="52" font-size="11" class="t-muted">들어가는 방향들 중 최솟값</text>
+        <text x="500" y="86" font-size="24" font-weight="700" fill="currentColor">a = 182.6</text>
+        <g font-size="11" fill="currentColor">
+          <text x="500" y="122">베이 0 용량 4,030.25의 4.5%</text>
+          <rect x="500" y="128" width="200" height="8" class="f-bay" stroke-width="1"/><rect x="500" y="128" width="9.1" height="8" class="f-steel" stroke-width="1"/>
+          <text x="500" y="158">베이 1 용량 3,946.25의 4.6%</text>
+          <rect x="500" y="164" width="200" height="8" class="f-bay" stroke-width="1"/><rect x="500" y="164" width="9.3" height="8" class="f-steel" stroke-width="1"/>
+          <text x="500" y="194">베이 2 용량 1,586.25의 11.5%</text>
+          <rect x="500" y="200" width="200" height="8" class="f-bay" stroke-width="1"/><rect x="500" y="200" width="23" height="8" class="f-steel" stroke-width="1"/>
+        </g>
+        <text x="24" y="238" font-size="11" class="t-muted">초록: 층 1(= 합집합). 파랑: 층 0. 주황 점선: 바운딩 박스. 좌표 1 = 9px</text>
+      </svg>
+      </div>
+      <figcaption><span class="mono">prelim_prob_1</span>의 <span class="mono">blocks[2]</span>를 실제 좌표로 그렸습니다. 같은 블록인데 45° 돌리면 바운딩 박스가 커져서 a가 182.6에서 226.9로 늘어납니다. 세 베이 모두 방향 0이 들어가므로 이 블록의 a는 어느 베이에서나 182.6입니다. 오른쪽 막대는 이 값이 각 베이의 용량(다음 절)에서 차지하는 비율입니다.</figcaption>
+    </figure>
+    <p>이 블록은 층 0이 층 1 안에 들어가 있어서 합집합이 층 1과 같습니다(넓이 123.5, 둘레 54.4). 방향을 바꿔도 합집합의 넓이와 둘레는 그대로이고 바운딩 박스만 달라집니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>방향</th><th>바운딩 박스</th><th>A<sub>bbox</sub></th><th>계산</th><th>a</th></tr></thead>
+      <tbody>
+        <tr><td>0, 2, 4, 6</td><td>20.64 × 11.18</td><td>230.8</td><td><span class="mono">123.5 + 0.5 × 107.3 + 0.1 × 54.4</span></td><td><strong>182.6</strong></td></tr>
+        <tr><td>1, 3, 5, 7</td><td>22.32 × 14.31</td><td>319.5</td><td><span class="mono">123.5 + 0.5 × 196.0 + 0.1 × 54.4</span></td><td>226.9</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>블록마다 방향이 여러 개이므로 값을 하나로 줄이는 규칙이 필요합니다. 코드는 <strong>그 베이에 들어가는 방향만 남기고, 그중 가장 작은 값</strong>을 씁니다.</p>
+<pre><span class="c">// src/solver/preoptimize.rs:218  build_occupancy() — 블록 i, 베이 j 한 쌍에 대해</span>
+areas.iter().copied()
+    .filter(|&amp;area| fits_bay(area, bay))                    <span class="c">// 이 베이에 들어가는 방향만</span>
+    .map(|area| area.union_area
+        + params.alpha * (area.bbox_area - area.union_area)
+        + params.beta * area.perimeter)
+    .min_by(f64::total_cmp)                                 <span class="c">// 그중 최솟값. 들어가는 방향이 없으면 None</span></pre>
+    <p class="src">Rust 읽는 법: <code>.iter()</code> 뒤에 점으로 이어진 것은 목록을 차례로 가공하는 연쇄입니다. <code>.filter(조건)</code>은 조건에 맞는 것만 남기고, <code>.map(식)</code>은 원소마다 값을 바꾸고, <code>.min_by(…)</code>는 최솟값을 고릅니다. <code>|area| …</code>는 인자가 <code>area</code>인 이름 없는 함수입니다. 결과가 없을 수 있는 값은 <code>Some(값)</code> 또는 <code>None</code>으로 나타냅니다.</p>
+    <ul class="plain">
+      <li><strong>"들어간다"의 기준</strong>(<code>fits_bay</code>, 197줄): 바운딩 박스가 베이 직사각형 안에 들어오게 하는 정수 좌표가 하나라도 있으면 됩니다. 다른 블록은 보지 않습니다.</li>
+      <li><strong>값이 없는 경우:</strong> 어느 방향으로도 안 들어가는 베이는 <code>None</code>이 되고, 그 블록은 그 베이에 배정될 수 없습니다. <span class="mono">prelim_prob_6</span>에는 이런 (블록, 베이) 쌍이 5개 있고, 모두 세로가 15인 베이 0입니다.</li>
+      <li><strong>베이마다 값이 다른 경우:</strong> 좁은 베이에서는 가장 좋은 방향을 못 써서 a가 커질 수 있습니다. 다만 학습 데이터 14개의 블록 2,850개 중 베이에 따라 a가 달라지는 블록은 12개뿐입니다.</li>
+    </ul>
+    <p>학습 데이터 전체로 보면 a는 합집합 넓이의 1.03~2.81배이고, 문제별 중앙값은 1.25~1.46배입니다. 즉 추상 문제는 블록을 실제 그림자보다 대략 25~45% 크게 봅니다.</p>
+    <p class="src">합집합은 <span class="mono">src/solver/precompute.rs:102</span>의 <code>orientation_union</code>이 <code>geo</code> 라이브러리의 다각형 합집합 연산으로 구하고, 넓이·바운딩 박스·둘레는 <span class="mono">preoptimize.rs:169</span>의 <code>orientation_area</code>가 계산합니다. α, β는 <span class="mono">params/default.yaml</span>의 <code>preoptimize.alpha</code>, <code>preoptimize.beta</code>입니다. 위 수치는 제가 같은 식을 Python으로 구현해 계산했습니다. <code>geo</code>의 결과와 소수 아래 끝자리까지 같은지는 확인하지 못했습니다.</p>
+  </section>
+
+  <section>
+    <h2>베이도 숫자 하나가 된다: 용량 C</h2>
+    <p>베이 j는 폭 W, 세로 H 대신 <strong>용량</strong> 하나로 바뀝니다.</p>
+    <div class="formula">C<sub>j</sub> = max( (W<sub>j</sub> − 0.5) × (H<sub>j</sub> − 0.5), &nbsp;베이 j에 들어갈 수 있는 블록들의 a<sub>ij</sub> 중 최댓값 )</div>
+    <p>앞부분은 베이 넓이를 가로·세로 0.5씩 줄여 잡은 값입니다(<code>bay_padding: 0.5</code>). 뒷부분은 하한입니다. 어떤 블록의 a가 용량보다 크면 그 블록은 혼자서도 그 베이에 "못 들어가는" 것으로 계산되어 버리므로, 그런 일이 없도록 용량을 그 블록의 a까지 올립니다. 학습 데이터 14개에서는 이 하한이 실제로 적용된 베이가 없었습니다.</p>
+<pre><span class="c">// src/solver/preoptimize.rs:896  preoptimize()</span>
+let padded_capacity =
+    (bay.width as f64 - params.bay_padding) * (bay.height as f64 - params.bay_padding);
+occupancy.iter()
+    .filter_map(|areas| areas[bay_id])        <span class="c">// 이 베이에 들어갈 수 있는 블록들의 a</span>
+    .fold(padded_capacity, f64::max)</pre>
+    <p>2장에서 본 <span class="mono">prelim_prob_6</span>(블록 250개)의 값입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>베이</th><th>W × H</th><th>실제 넓이</th><th>용량 C</th></tr></thead>
+      <tbody>
+        <tr><td>0</td><td>154 × 15</td><td>2,310</td><td>153.5 × 14.5 = 2,225.75</td></tr>
+        <tr><td>1</td><td>79 × 19</td><td>1,501</td><td>78.5 × 18.5 = 1,452.25</td></tr>
+        <tr><td>2</td><td>105 × 20</td><td>2,100</td><td>104.5 × 19.5 = 2,037.75</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>이 문제에서 블록의 a는 가장 작은 것이 23.0, 중앙값 101.0, 가장 큰 것이 274.3입니다. 중앙값 크기의 블록 하나가 베이 용량의 4.5~7%를 차지하므로, 한 베이에 대략 14~22개가 동시에 들어가는 계산입니다.</p>
+  </section>
+
+  <section>
+    <h2>제약은 두 가지뿐</h2>
+    <p>추상 문제에서 블록 i에 대해 정하는 것은 <strong>추상 베이 b̂<sub>i</sub></strong>와 <strong>추상 입고 시각 ê<sub>i</sub></strong> 둘입니다. 출고는 항상 <span class="mono">ê + P</span>로 봅니다. 지켜야 할 것은 아래 둘입니다.</p>
+    <ol class="plain">
+      <li><span class="mono">ê<sub>i</sub> ≥ R<sub>i</sub></span>. release 전에는 못 들어갑니다.</li>
+      <li>모든 베이 j, 모든 날 t에 대해, 그날 그 베이에 있는 블록들의 a를 더한 값이 용량 이하입니다.</li>
+    </ol>
+    <div class="formula">Σ a<sub>ij</sub> ≤ C<sub>j</sub> &nbsp;&nbsp;(합은 b̂<sub>i</sub> = j 이고 ê<sub>i</sub> ≤ t &lt; ê<sub>i</sub> + P<sub>i</sub> 인 블록 i에 대해)</div>
+    <p>블록은 ê일부터 ê + P − 1일까지 P일 동안 용량을 차지합니다. 1장에서 본 "e일부터 q − 1일까지 베이를 차지한다"와 같은 규칙입니다.</p>
+    <p>차량 경로 문제의 용량 제약("실은 양의 합 ≤ 차량 용량")과 같은 꼴입니다. 다른 점은 이 부등식이 베이마다 한 번이 아니라 <strong>날마다 따로</strong> 성립해야 한다는 것입니다. 블록이 들어오고 나가면서 합에 들어가는 블록이 날마다 바뀌기 때문입니다. 일정 계획에서는 이런 제약을 누적 자원 제약이라고 부릅니다.</p>
+    <div class="note">
+      <p><strong>추상 문제에 없는 것</strong></p>
+      <p>좌표, 방향, 층, 같은 높이 겹침 금지(규칙 A), 크레인 규칙(규칙 B)이 모두 없습니다. "넓이의 합이 용량 이하"라는 조건은 실제로 그 블록들을 겹치지 않게 놓을 수 있다는 뜻이 아닙니다. 그래서 추상 일정은 답이 아니라 순서를 얻기 위한 추정입니다.</p>
+    </div>
+  </section>
+
+  <!-- ================= 2부 ================= -->
+  <div class="part">2부 · 상태와 목적 함수</div>
+
+  <section>
+    <h2>추상 상태가 저장하는 것</h2>
+    <p>해 하나는 블록마다 (베이, 입고 시각) 한 쌍입니다. 최종 결과로 2단계에 넘어가는 것도 이것뿐입니다.</p>
+<pre><span class="c">// src/solver.rs:21</span>
+pub(crate) struct PreoptimizedBlock {
+    pub(crate) bay_id: usize,
+    pub(crate) entry_time: i64,
+}</pre>
+    <p>탐색 중에는 계산을 빠르게 하려고 몇 가지를 함께 들고 다닙니다. 모두 위의 (베이, 입고 시각) 목록에서 다시 계산할 수 있는 값입니다.</p>
+<pre><span class="c">// src/solver/preoptimize.rs:131</span>
+struct PreoptimizeAnnealingState {
+    schedule: Vec&lt;PreoptimizedBlock&gt;,   <span class="c">// 블록별 (베이, 입고 시각)</span>
+    used_area: Vec&lt;Vec&lt;f64&gt;&gt;,           <span class="c">// [베이][날짜] 그날 그 베이에 있는 블록들의 a 합</span>
+    loads: Vec&lt;f64&gt;,                    <span class="c">// 베이별 workload 합 (Z₂ 계산용)</span>
+    z1: f64, z2: f64, z3: f64,
+    official_objective: f64,            <span class="c">// w₁Z₁ + w₂Z₂ + w₃Z₃</span>
+    congestion: f64,                    <span class="c">// 혼잡 값 (아래)</span>
+    objective: f64,                     <span class="c">// SA가 줄이려는 값 = official_objective + 혼잡 벌점</span>
+}</pre>
+  </section>
+
+  <section>
+    <h2>추상 목적 함수</h2>
+    <p>앞부분은 원래 목적 함수와 같은 식을 추상 일정에 적용한 것입니다(<code>evaluate_schedule</code>, 149줄).</p>
+    <ul class="plain">
+      <li><strong>Z₁:</strong> 블록마다 <span class="mono">max(0, ê + P − D)</span>를 더합니다.</li>
+      <li><strong>Z₂:</strong> 추상 베이 배정으로 베이별 workload를 더해 1장과 같은 식으로 불균형을 구합니다. 2단계의 중간 호라이즌과 달리 여기서는 w₂를 그대로 씁니다. 추상 문제는 모든 블록을 한꺼번에 배정하므로 Z₂를 온전히 계산할 수 있습니다.</li>
+      <li><strong>Z₃:</strong> 추상 베이의 선호 벌점을 더합니다.</li>
+    </ul>
+    <p>여기에 <strong>혼잡 벌점</strong>이 하나 더 붙습니다.</p>
+    <div class="formula">objective = w₁Z₁ + w₂Z₂ + w₃Z₃ + w₁ × congestion_weight × congestion &nbsp;&nbsp;(congestion_weight = 0.001)</div>
+    <p>혼잡 값(congestion)의 정의는 이렇습니다. 블록 i가 베이 j에서 차지하는 비율을 <span class="mono">r<sub>i</sub> = a<sub>ij</sub> / C<sub>j</sub></span>라고 하면, <strong>같은 날 같은 베이에 함께 있는 블록 쌍마다 두 비율의 곱을 구해, 모든 쌍·모든 날·모든 베이에 대해 더한 값</strong>입니다.</p>
+    <div class="formula">congestion = Σ<sub>베이</sub> Σ<sub>날짜</sub> Σ<sub>함께 있는 쌍 (i, k)</sub> r<sub>i</sub> · r<sub>k</sub></div>
+    <p>어느 하루, 한 베이의 값을 예로 보면 성질이 드러납니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>그날 베이에 있는 블록들의 비율</th><th>합(점유율)</th><th>쌍의 곱의 합</th></tr></thead>
+      <tbody>
+        <tr><td>0.25, 0.25</td><td>50%</td><td>0.0625</td></tr>
+        <tr><td>0.5, 0.5</td><td>100%</td><td>0.25</td></tr>
+        <tr><td>0.5, 0.3, 0.2</td><td>100%</td><td>0.15 + 0.10 + 0.06 = 0.31</td></tr>
+        <tr><td>0.1짜리 10개</td><td>100%</td><td>45쌍 × 0.01 = 0.45</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>같은 구성에서 점유율이 두 배가 되면 값은 네 배가 되고, 같은 점유율이면 블록 수가 많을수록 값이 큽니다. 어떤 경우에도 하루·한 베이의 값은 0.5를 넘지 않습니다. 쌍의 곱의 합은 <span class="mono">((Σr)² − Σr²) / 2</span>이고 Σr ≤ 1이기 때문입니다.</p>
+    <p>보고서는 이 벌점의 목적을 "넓이 용량은 만족하지만 실제 배치로 바꾸기 어려운, 지나치게 혼잡한 추상 일정을 피하게 한다"고 설명합니다.</p>
+    <p>크기를 따져 보면 이 벌점은 지연에 비해 매우 작습니다. 벌점에 w₁을 곱하므로 단위가 "지연 일수"와 같아지는데, 한 베이가 하루 종일 꽉 찬 경우의 벌점이 지연 0.0005일어치 이하입니다. 제가 재현한 <span class="mono">prelim_prob_6</span>의 추상 일정에서 혼잡 값은 약 137이었고, 벌점으로는 지연 0.137일어치입니다. 같은 일정의 Z₁은 2,721일입니다. 따라서 이 항은 지연이나 선호가 같은 일정들 사이에서 덜 붐비는 쪽을 고르게 하는 정도로 작동합니다. 이 크기 비교는 식에서 제가 계산한 것이고, 저자가 그렇게 설명한 것은 아닙니다.</p>
+    <p class="src">혼잡 값은 블록을 넣고 뺄 때마다 <span class="mono">preoptimize.rs:441</span>의 <code>add_used_area</code>가 갱신합니다(5부). <code>congestion_weight</code>는 <span class="mono">params/default.yaml</span>의 <code>preoptimize.congestion_weight</code>입니다.</p>
+  </section>
+
+  <!-- ================= 3부 ================= -->
+  <div class="part">3부 · 초기해 만들기</div>
+
+  <section>
+    <h2>시간 예산</h2>
+    <p>1단계 전체에 주는 시간은 <span class="mono">min(제한 시간 × 0.1, 10초)</span>이고, 그 안에서 초기해 만들기에 <span class="mono">min(1단계 시간 × 0.1, 1초)</span>를 씁니다. 나머지가 SA입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>솔버에 준 제한 시간</th><th>1단계 전체</th><th>초기해 만들기</th><th>SA</th></tr></thead>
+      <tbody>
+        <tr><td>60초</td><td>6초</td><td>0.6초</td><td>5.4초</td></tr>
+        <tr><td>300초</td><td>10초</td><td>1초</td><td>9초</td></tr>
+        <tr><td>1,800초</td><td>10초</td><td>1초</td><td>9초</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="src"><span class="mono">src/solver.rs:32</span>의 <code>phase_time_limit</code>과 57줄의 호출부, <span class="mono">preoptimize.rs:929</span>. 값은 <code>phases.preoptimize</code>(<code>time_ratio: 0.1</code>, <code>max_seconds: 10.0</code>)와 <code>preoptimize.initial_build</code>(<code>time_ratio: 0.1</code>, <code>max_seconds: 1.0</code>)입니다.</p>
+  </section>
+
+  <section>
+    <h2>무작위 순서를 여러 개 만들어 탐욕으로 채운다</h2>
+    <p>워커(최대 4개)가 각자 아래를 시간이 끝날 때까지 반복하고, 모든 워커를 통틀어 objective가 가장 작은 것 하나를 초기해로 씁니다(<code>build_initial_state</code>, 335줄).</p>
+    <ol class="plain">
+      <li>블록 전체의 순서를 하나 만든다. 매번 가중치를 새로 뽑으므로 순서가 매번 다르다.</li>
+      <li>그 순서대로 블록을 하나씩, 그때까지의 일정에서 가장 좋은 (베이, 입고 시각)에 넣는다.</li>
+    </ol>
+    <p>2번처럼 그 순간 가장 좋아 보이는 선택을 하고 나중에 되돌리지 않는 방식을 <strong>탐욕</strong>(greedy)이라고 합니다. 빠르지만 앞에서 한 선택이 뒤의 블록에게 나쁜 자리를 남길 수 있고, 그 결과는 넣는 순서에 크게 좌우됩니다. 그래서 순서를 여러 개 시도합니다.</p>
+
+    <h3>순서를 만드는 점수</h3>
+    <p>순서는 블록마다 점수를 매겨 점수가 높은 것부터 줄 세운 것입니다. 이 함수(<code>sort_default_reconstruct_order</code>)는 2단계의 큰 재구성 이웃과 함께 쓰는 것이라 <span class="mono">reconstruct.rs</span>에 있습니다. 점수는 네 가지 요소와 난수의 가중합이고, 각 요소는 0~1로 맞춥니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>요소</th><th>점수가 높아지는 블록</th><th>가중치를 뽑는 범위</th></tr></thead>
+      <tbody>
+        <tr><td>부피</td><td>a × P가 큰 블록</td><td>0.5 ~ 2.0</td></tr>
+        <tr><td>한계 시각의 급함</td><td>D − P가 이른 블록. D − P는 납기를 맞추려면 늦어도 들어가야 하는 날</td><td>0.5 ~ 2.0</td></tr>
+        <tr><td>여유의 빡빡함</td><td>D − P − R이 작은 블록</td><td>0.0 ~ 0.3</td></tr>
+        <tr><td>선호 차이</td><td>가장 좋아하는 베이와 가장 싫어하는 베이의 선호 점수 차가 큰 블록</td><td>0.0 ~ 0.3</td></tr>
+        <tr><td>난수</td><td>블록마다 0부터 (0.0 ~ 0.3에서 뽑은 값) 사이의 난수를 더함</td><td></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>가중치 범위를 보면 "크고 오래 머무는 블록"과 "급한 블록"을 앞에 두는 것이 기본이고, 그 둘의 비중을 매번 바꿔 가며 여러 순서를 시도하는 구조입니다. 점수가 같으면 한계 시각이 이른 순, 부피가 큰 순, workload가 큰 순, 선호 차이가 큰 순, 번호 순으로 정합니다.</p>
+    <p class="src"><span class="mono">src/solver/reconstruct.rs:553</span>의 <code>block_order_score</code>, 580줄의 <code>sort_block_order</code>, 643줄의 <code>sort_default_reconstruct_order</code>. 가중치 범위는 <code>neighbor.reconstruct</code>의 <code>volume_weight_range</code>, <code>limit_time_urgency_weight_range</code>, <code>slack_tightness_weight_range</code>, <code>pref_spread_weight_range</code>, <code>order_random_weight_range</code>입니다. 여기서 부피에 쓰는 넓이는 블록의 a(베이별 값 중 최솟값)입니다.</p>
+
+    <h3>블록 하나를 넣는 방법</h3>
+    <p>블록 하나에 대해, 들어갈 수 있는 베이마다 후보를 <strong>하나씩</strong> 만듭니다. 그 베이에서 P일 연속으로 용량이 남는 가장 이른 날입니다. 그 후보들 가운데 점수가 가장 낮은 것을 고릅니다.</p>
+<pre><span class="c">// src/solver/preoptimize.rs:257  try_build_initial_state() 의 핵심 (줄여서 옮김)</span>
+for (bay_id, occupied_area) in 이 블록이 들어갈 수 있는 베이들 {
+    <span class="c">// ① release 날부터 하루씩 뒤로 가며, P일 내내 용량이 남는 첫 날을 찾는다</span>
+    let entry_time = (block.release_time..=last_entry).find(|&amp;entry_time| {
+        (entry_time..entry_time + block.processing_time).all(|time| {
+            used_area[bay_id][time] + occupied_area &lt;= bay_capacities[bay_id] + 1e-9
+        })
+    });
+
+    <span class="c">// ② 이 후보를 골랐을 때 목적 함수가 얼마나 늘어나는지</span>
+    let score = w1 * tardiness                                  <span class="c">// 이 블록의 지연</span>
+        + w2 * (이 블록을 더한 뒤의 Z₂ − 지금의 Z₂)
+        + w3 * pref_penalty[block_id][bay_id]
+        + w1 * congestion_weight * congestion_delta;           <span class="c">// 이 블록 때문에 늘어나는 혼잡</span>
+    <span class="c">// ③ score가 가장 작은 후보. 같으면 입고가 이른 쪽, 그래도 같으면 번호가 작은 베이</span>
+}</pre>
+    <p>후보는 베이 수만큼뿐입니다. "선호하는 베이에서 5일 기다린다"와 "덜 선호하는 베이에 바로 들어간다"를 w₁, w₃로 환산해 비교하는 셈입니다.</p>
+    <p>찾는 범위의 끝은 <span class="mono">가장 늦은 release + 모든 블록의 P의 합</span>입니다(<code>search_horizon</code>, 105줄). 블록을 한 줄로 세워 하나씩 처리해도 끝나는 시각이므로, 들어갈 날은 반드시 있습니다. 초기해가 정해진 뒤에는 탐색 범위를 <span class="mono">max(초기해에서 가장 늦은 출고 시각, 가장 늦은 납기)</span>까지로 줄이고(417줄), 이후 SA는 이 시각을 넘어 끝나는 일정을 만들지 않습니다.</p>
+    <p><strong>재현 결과.</strong> <span class="mono">prelim_prob_6</span>에서 순서 3,000개로 이 절차를 돌리면 Z₁이 순서에 따라 5,631~9,166일로 크게 달랐고, 가장 좋은 것이 5,631일이었습니다. 자리가 넉넉한 <span class="mono">prelim_prob_1</span>에서는 3,000개 모두 Z₁ = 0이었습니다. 솔버가 1초 안에 순서를 몇 개 시도하는지는 실행하지 못해 확인하지 못했습니다.</p>
+  </section>
+
+  <!-- ================= 4부 ================= -->
+  <div class="part">4부 · SA로 고치기</div>
+
+  <section>
+    <h2>SA 뼈대를 쓰는 방식</h2>
+    <div class="note">
+      <p><strong>배경: 시뮬레이티드 어닐링(SA)</strong></p>
+      <p>좋아지는 변화만 받는 지역 탐색은 금방 "어느 이웃으로 가도 나빠지는" 해(지역 최적해)에서 멈춥니다. SA는 나빠지는 변화도 확률적으로 받아서 그 자리를 벗어납니다. 나빠지는 정도를 Δ(새 값 − 지금 값), <strong>온도</strong>를 T라고 하면 받을 확률은 <span class="mono">exp(−Δ / T)</span>입니다. Δ가 T보다 훨씬 작으면 거의 항상 받고, T의 몇 배이면 거의 받지 않습니다. 좋아지거나 같은 변화(Δ ≤ 0)는 항상 받습니다.</p>
+      <p>T는 처음에 높게 잡고 시간이 갈수록 낮춥니다. 초반에는 해가 크게 돌아다니며 구조를 바꾸고, 후반에는 거의 좋아지는 변화만 받으며 다듬습니다. 금속을 달궜다가 천천히 식히는 담금질(annealing)에서 온 이름입니다.</p>
+      <p>아래 3번의 식은 같은 규칙을 다르게 쓴 것입니다. 0~1 난수 u를 뽑아 <span class="mono">u ≤ exp(−Δ / T)</span>이면 받는다는 조건을 정리하면 <span class="mono">새 값 ≤ 지금 값 − T × ln(u)</span>가 됩니다. ln(u)는 음수이므로 오른쪽은 지금 값보다 조금 큰 값입니다. 이 자료에서는 이 값을 <strong>수락 임계값</strong>이라고 부릅니다.</p>
+    </div>
+    <p>초기해를 워커 수만큼 복사해 각 워커가 따로 SA를 돌립니다. SA의 뼈대(<span class="mono">annealing.rs</span>)는 2단계와 같은 것을 쓰고, 2단계에서의 쓰임은 7장에서 자세히 다룹니다. 여기서 필요한 것은 한 번의 반복이 하는 일입니다.</p>
+    <ol class="plain">
+      <li>지금 상태를 복사한다.</li>
+      <li>세 이웃 중 하나를 확률에 따라 골라 복사본을 고친다. 고치는 데 실패하면 버리고 다음 반복으로 간다.</li>
+      <li>고친 상태의 objective가 <span class="mono">지금 objective − T × ln(0~1 난수)</span> 이하이면 받아들인다. 좋아지면 항상 받고, 나빠져도 온도 T에 비해 조금만 나빠지면 받는다.</li>
+    </ol>
+    <p><strong>온도.</strong> 시작 온도는 <span class="mono">초기해의 objective ÷ 블록 수</span>이고, 끝 온도는 그 1%입니다. 시간이 흐른 비율에 따라 그 사이를 등비로 내려갑니다. 즉 시작할 때는 "블록 하나가 평균적으로 지고 있는 벌점" 정도의 악화를 쉽게 받아들입니다. 재현한 <span class="mono">prelim_prob_6</span>의 초기해로 계산하면 시작 온도가 약 152,500(지연 약 23일어치, w₁ = 6,667), 끝 온도가 약 1,525(지연 0.23일어치)입니다. 이 값으로 계산하면 지연이 하루 늘어나는 변화(Δ = 6,667)를 받을 확률이 시작할 때는 exp(−6,667 / 152,500) ≈ 96%이고 끝날 때는 exp(−6,667 / 1,525) ≈ 1.3%입니다.</p>
+    <p class="src"><span class="mono">preoptimize.rs:830</span>의 <code>propose</code>, <span class="mono">annealing.rs:85</span>(온도), 125줄(수락 기준), <span class="mono">params.rs:147</span>(온도 범위 계산). 설정은 <code>annealing.preoptimize.temperature_initial_score_per_block_scale: [1.0, 0.01]</code>입니다. 2단계는 같은 항목이 <code>[0.2, 0.02]</code>입니다.</p>
+  </section>
+
+  <section>
+    <h2>세 이웃이 함께 쓰는 부품</h2>
+    <h3>어떤 블록을 고칠지: <code>select_block</code></h3>
+    <p>75%의 확률로 "나쁜 블록"을 고릅니다. 블록 8개를 무작위로 뽑아 그중 <span class="mono">w₁ × 지연 + w₃ × 선호 벌점</span>이 가장 큰 것을 택합니다. 나머지 25%는 전체에서 아무 블록이나 하나 고릅니다(<code>bad_block_select_probability: 0.75</code>, <code>bad_block_sample_count: 8</code>).</p>
+    <h3>새 입고 시각을 어떻게 뽑을지: <code>sample_entry_time</code></h3>
+    <p>네 가지 방법 중 하나를 같은 확률(각 25%)로 씁니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>방법</th><th>뽑는 값</th><th>뜻</th></tr></thead>
+      <tbody>
+        <tr><td>①</td><td><span class="mono">R</span></td><td>가장 이른 날</td></tr>
+        <tr><td>②</td><td><span class="mono">D − P</span></td><td>납기를 맞추는 가장 늦은 날. R보다 이르면 R</td></tr>
+        <tr><td>③</td><td>지금 시각 ± 10일 안의 무작위 값</td><td>조금만 옮기기 (<code>max_time_shift: 10</code>)</td></tr>
+        <tr><td>④</td><td>R부터 탐색 범위 끝까지에서 무작위 값</td><td>아무 데나</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <h3>그 자리에 들어가는지: <code>can_place</code></h3>
+    <p>입고가 R 이후이고, 출고가 탐색 범위 안이고, 그 베이에 들어갈 수 있는 블록이고, P일 내내 용량이 남는지를 확인합니다. 새 베이는 항상 전체 베이에서 무작위로 고릅니다.</p>
+    <p class="src"><span class="mono">preoptimize.rs:488</span>, 512줄, 466줄.</p>
+  </section>
+
+  <section>
+    <h2>세 이웃</h2>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 262" role="img" aria-label="세 이웃이 추상 일정을 바꾸는 방식. Relocate는 블록 하나를 다른 베이와 다른 시각으로 옮긴다. Swap은 두 블록의 베이를 맞바꾼다. LargeReconstruct는 여러 블록을 한꺼번에 빼고 다른 자리에 다시 넣는다.">
+        <defs><marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+        <text x="15" y="20" font-size="13" font-weight="700" fill="currentColor">Relocate · 80%</text>
+        <rect x="15" y="50" width="215" height="60" class="s-muted" stroke-width="1"/><rect x="15" y="125" width="215" height="60" class="s-muted" stroke-width="1"/>
+        <text x="15" y="45" font-size="10" class="t-muted">베이 0</text><text x="15" y="199" font-size="10" class="t-muted">베이 1</text>
+        <text x="230" y="199" font-size="10" class="t-muted" text-anchor="end">시간 →</text>
+        <rect x="21" y="54" width="70" height="24" class="f-bay" stroke-width="1"/><rect x="95" y="54" width="60" height="24" class="f-bay" stroke-width="1"/><rect x="159" y="54" width="62" height="24" class="f-bay" stroke-width="1"/><rect x="21" y="82" width="50" height="24" class="f-bay" stroke-width="1"/><rect x="75" y="82" width="60" height="24" class="s-muted" stroke-width="1.2" stroke-dasharray="4 3"/><text x="105.0" y="98" font-size="11" fill="currentColor" text-anchor="middle">A</text><rect x="139" y="82" width="82" height="24" class="f-bay" stroke-width="1"/><rect x="21" y="129" width="90" height="24" class="f-bay" stroke-width="1"/><rect x="179" y="129" width="44" height="24" class="f-bay" stroke-width="1"/><rect x="21" y="157" width="60" height="24" class="f-bay" stroke-width="1"/><rect x="135" y="157" width="60" height="24" class="f-crane" stroke-width="1.5"/><text x="165.0" y="173" font-size="11" fill="currentColor" text-anchor="middle">A</text>
+        <path d="M105,108 C105,135 165,130 165,153" class="s-crane" stroke-width="1.8" marker-end="url(#ah3)"/>
+
+        <text x="252" y="20" font-size="13" font-weight="700" fill="currentColor">Swap · 15%</text>
+        <rect x="252" y="50" width="215" height="60" class="s-muted" stroke-width="1"/><rect x="252" y="125" width="215" height="60" class="s-muted" stroke-width="1"/>
+        <text x="252" y="45" font-size="10" class="t-muted">베이 0</text><text x="252" y="199" font-size="10" class="t-muted">베이 1</text>
+        <text x="467" y="199" font-size="10" class="t-muted" text-anchor="end">시간 →</text>
+        <rect x="258" y="54" width="80" height="24" class="f-bay" stroke-width="1"/><rect x="372" y="54" width="50" height="24" class="f-hull" stroke-width="1.5"/><text x="397.0" y="70" font-size="11" fill="currentColor" text-anchor="middle">B</text><rect x="258" y="82" width="40" height="24" class="f-bay" stroke-width="1"/><rect x="312" y="82" width="70" height="24" class="s-muted" stroke-width="1.2" stroke-dasharray="4 3"/><text x="347.0" y="98" font-size="11" fill="currentColor" text-anchor="middle">A</text><rect x="417" y="82" width="44" height="24" class="f-bay" stroke-width="1"/><rect x="258" y="129" width="40" height="24" class="f-bay" stroke-width="1"/><rect x="372" y="129" width="50" height="24" class="s-muted" stroke-width="1.2" stroke-dasharray="4 3"/><text x="397.0" y="145" font-size="11" fill="currentColor" text-anchor="middle">B</text><rect x="427" y="129" width="34" height="24" class="f-bay" stroke-width="1"/><rect x="312" y="157" width="70" height="24" class="f-crane" stroke-width="1.5"/><text x="347.0" y="173" font-size="11" fill="currentColor" text-anchor="middle">A</text><rect x="388" y="157" width="60" height="24" class="f-bay" stroke-width="1"/>
+        <path d="M347,108 V153" class="s-crane" stroke-width="1.8" marker-end="url(#ah3)"/>
+        <path d="M397,127 V82" class="s-ok" stroke-width="1.8" marker-end="url(#ah3)"/>
+
+        <text x="490" y="20" font-size="13" font-weight="700" fill="currentColor">LargeReconstruct · 5%</text>
+        <rect x="490" y="50" width="215" height="60" class="s-muted" stroke-width="1"/><rect x="490" y="125" width="215" height="60" class="s-muted" stroke-width="1"/>
+        <text x="490" y="45" font-size="10" class="t-muted">베이 0</text><text x="490" y="199" font-size="10" class="t-muted">베이 1</text>
+        <text x="705" y="199" font-size="10" class="t-muted" text-anchor="end">시간 →</text>
+        <rect x="496" y="54" width="50" height="24" class="s-muted" stroke-width="1.2" stroke-dasharray="4 3"/><text x="521.0" y="70" font-size="11" fill="currentColor" text-anchor="middle">1</text><rect x="550" y="54" width="60" height="24" class="f-bay" stroke-width="1"/><rect x="620" y="54" width="45" height="24" class="f-crane" stroke-width="1.5"/><text x="642.5" y="70" font-size="11" fill="currentColor" text-anchor="middle">3</text><rect x="496" y="82" width="70" height="24" class="f-bay" stroke-width="1"/><rect x="570" y="82" width="40" height="24" class="s-muted" stroke-width="1.2" stroke-dasharray="4 3"/><text x="590.0" y="98" font-size="11" fill="currentColor" text-anchor="middle">2</text><rect x="620" y="82" width="50" height="24" class="f-crane" stroke-width="1.5"/><text x="645.0" y="98" font-size="11" fill="currentColor" text-anchor="middle">1</text><rect x="496" y="129" width="40" height="24" class="f-crane" stroke-width="1.5"/><text x="516.0" y="145" font-size="11" fill="currentColor" text-anchor="middle">2</text><rect x="540" y="129" width="70" height="24" class="f-bay" stroke-width="1"/><rect x="620" y="129" width="45" height="24" class="s-muted" stroke-width="1.2" stroke-dasharray="4 3"/><text x="642.5" y="145" font-size="11" fill="currentColor" text-anchor="middle">3</text><rect x="496" y="157" width="60" height="24" class="s-muted" stroke-width="1.2" stroke-dasharray="4 3"/><text x="526.0" y="173" font-size="11" fill="currentColor" text-anchor="middle">4</text><rect x="560" y="157" width="50" height="24" class="f-bay" stroke-width="1"/><rect x="625" y="157" width="60" height="24" class="f-crane" stroke-width="1.5"/><text x="655.0" y="173" font-size="11" fill="currentColor" text-anchor="middle">4</text>
+
+        <rect x="15" y="222" width="22" height="12" class="s-muted" stroke-width="1.2" stroke-dasharray="4 3"/>
+        <text x="43" y="232" font-size="11" fill="currentColor">옮기기 전 자리</text>
+        <rect x="150" y="222" width="22" height="12" class="f-crane" stroke-width="1.5"/>
+        <text x="178" y="232" font-size="11" fill="currentColor">옮긴 뒤 자리</text>
+        <rect x="275" y="222" width="22" height="12" class="f-bay" stroke-width="1"/>
+        <text x="303" y="232" font-size="11" fill="currentColor">그대로인 블록</text>
+        <text x="15" y="254" font-size="11" class="t-muted">가로는 머무는 기간(ê ~ ê + P). 세로 위치는 뜻이 없습니다. 추상 상태에는 좌표가 없고, 베이별로 날마다의 넓이 합만 있습니다.</text>
+      </svg>
+      </div>
+      <figcaption>개념도입니다. Swap은 입고 시각을 각자 유지하는 경우를 그렸습니다(나머지 절반은 시각도 서로 바꿉니다). LargeReconstruct는 4개만 그렸지만 실제로는 7~13개를 뺍니다. 어느 이웃이든 옮긴 뒤의 자리가 용량 제약을 만족해야 성공입니다.</figcaption>
+    </figure>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>이웃</th><th>고를 확률</th><th>하는 일</th></tr></thead>
+      <tbody>
+        <tr><td>Relocate</td><td>80%</td><td>블록 하나를 빼서 다른 (베이, 입고 시각)에 넣는다</td></tr>
+        <tr><td>Swap</td><td>15%</td><td>두 블록의 베이를 맞바꾼다. 절반의 확률로 입고 시각도 맞바꾼다</td></tr>
+        <tr><td>LargeReconstruct<br>(큰 재구성)</td><td>5%</td><td>블록 7~13개를 한꺼번에 빼고, 순서를 정해 하나씩 다시 넣는다</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>Relocate와 Swap은 차량 경로 문제의 같은 이름 이웃과 발상이 같습니다. 고객을 다른 경로의 다른 자리로 옮기는 대신 블록을 다른 (베이, 입고 시각)으로 옮깁니다. LargeReconstruct는 2장에서 본 큰 이웃 탐색(부수고 다시 짓기)입니다.</p>
+    <h3>Relocate (<code>try_relocate</code>, 534줄)</h3>
+    <p><code>select_block</code>으로 블록 하나를 골라 일정에서 뺍니다. 그다음 (무작위 베이, <code>sample_entry_time</code>으로 뽑은 시각)을 최대 8번 뽑아 보고(<code>max_relocate_attempts: 8</code>), 원래 자리와 다르면서 <code>can_place</code>를 통과하는 첫 번째 것으로 옮깁니다. 8번 모두 실패하면 이번 반복은 실패입니다.</p>
+    <h3>Swap (<code>try_swap</code>, 599줄)</h3>
+    <p>블록 A는 <code>select_block</code>으로, 블록 B는 나머지에서 무작위로 고릅니다. A는 B의 베이로, B는 A의 베이로 갑니다. 입고 시각은 50%의 확률로 각자 자기 것을 유지하고, 50%의 확률로 서로 바꿉니다. 둘을 모두 뺀 뒤 A, B 순서로 <code>can_place</code>를 확인하고 하나라도 안 되면 실패입니다. 시각까지 바꾸는 경우에는 상대의 입고 시각이 자기 R보다 이르면 실패합니다.</p>
+    <h3>LargeReconstruct (<code>try_large_reconstruct</code>, 729줄)</h3>
+    <p>2단계의 큰 재구성(Large Reconstruction)과 이름과 발상이 같은 이웃이고, 추상 문제에 맞게 단순하게 만든 것입니다. 뺄 개수 k를 7~13에서 뽑습니다. 작은 쪽이 더 자주 나오게 되어 있어서(<code>remove_count: range [7, 13], power 2.0</code>) k = 7일 확률이 약 38%, k = 13일 확률이 약 7%입니다. <code>select_block</code>으로 하나, 나머지 k − 1개는 전체에서 무작위로 골라 모두 뺍니다. 그다음 초기해에서 쓴 것과 같은 점수 함수로 순서를 정해(가중치는 새로 뽑음), 하나씩 Relocate와 같은 방식(무작위 베이와 시각, 최대 8번)으로 다시 넣습니다. <strong>하나라도 8번 안에 자리를 못 찾으면 전체가 실패</strong>입니다.</p>
+    <div class="note">
+      <p><strong>세 이웃 모두 "가장 좋은 자리"를 찾지 않습니다.</strong></p>
+      <p>초기해를 만들 때는 베이마다 가장 이른 가능한 날을 찾았지만, SA의 이웃들은 베이와 시각을 무작위로 뽑아 들어가는지만 확인합니다. 좋은 쪽으로 가는 힘은 SA의 수락 기준에서 나옵니다. 2단계의 큰 재구성 이웃이 블록을 탐욕 삽입으로 다시 넣는 것과 다른 점입니다. 보고서도 추상 사전최적화의 큰 재구성은 좌표가 없어서 더 단순하다고 적고 있습니다.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>워커 병렬 실행과 교환</h2>
+    <ul class="plain">
+      <li><strong>워커 수:</strong> 최대 4개(<code>runtime.worker_count: 4</code>). 모두 같은 초기해에서 출발하고, 난수 시드만 워커 번호만큼 다릅니다.</li>
+      <li><strong>공유 최선해:</strong> 워커가 자기 최선해를 갱신하면 그것이 전체 최선해보다 좋을 때 공유 최선해를 바꿉니다.</li>
+      <li><strong>교환:</strong> 워커는 1,000,000번 반복할 때마다 공유 최선해를 확인하고, 그것이 자기 현재 해보다 <span class="mono">min(10 × w₁, 500 × w₃)</span> 넘게 좋으면 그것으로 갈아탑니다. 2단계의 교환 간격은 2,000번입니다. 1단계에서는 워커들이 거의 독립적으로 탐색하도록 둔 설정입니다.</li>
+      <li><strong>결과:</strong> 시간이 끝나면 공유 최선해가 1단계의 결과입니다.</li>
+    </ul>
+    <p class="src"><span class="mono">preoptimize.rs:939</span> 이하, <span class="mono">annealing.rs:296</span>의 <code>run</code>, 548줄의 <code>exchange_shared</code>. 설정은 <code>annealing.preoptimize</code>의 <code>exchange_interval: 1000000</code>, <code>exchange_threshold: { w1_scale: 10.0, w3_scale: 500.0 }</code>입니다. 9초 동안 워커 하나가 몇 번 반복하는지는 실행하지 못해 확인하지 못했습니다. 그래서 교환이 실제로 몇 번 일어나는지도 모릅니다.</p>
+  </section>
+
+  <section>
+    <h2>결과: 추상 일정은 어떻게 생겼나</h2>
+    <p>2장의 "자리가 모자란다" 그림에 썼던 <span class="mono">prelim_prob_6</span>으로 위 절차를 재현했습니다. 순서 3,000개로 초기해를 만들고, 워커 하나로 SA를 300만 번 반복했습니다.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 462" role="img" aria-label="prelim_prob_6의 세 베이에 대해 날짜별 점유율을 그린 그림. 모든 블록을 release 날에 넣는다고 하면 필요 넓이가 용량의 234에서 256퍼센트까지 올라가지만, 재현한 추상 일정에서는 점유율이 100퍼센트 선 아래에 붙은 채로 100일 넘게 이어진다.">
+        <rect x="70" y="10" width="22" height="10" class="f-steel" stroke-width="1"/>
+        <text x="98" y="19" font-size="11" fill="currentColor">재현한 추상 일정의 점유율</text>
+        <line x1="270" y1="15" x2="292" y2="15" class="s-crane" stroke-width="1.5" stroke-dasharray="5 3"/>
+        <text x="298" y="19" font-size="11" fill="currentColor">같은 베이 배정으로 모두 release 날에 넣었을 때</text>
+        <line x1="580" y1="15" x2="602" y2="15" class="s-line" stroke-width="1.2" stroke-dasharray="2 3"/>
+        <text x="608" y="19" font-size="11" fill="currentColor">용량 C</text>
+        <line x1="70" y1="76" x2="700" y2="76" class="s-muted" stroke-width=".5"/>
+        <polygon points="70,164 70.0,160.8 74.8,160.8 74.8,155.3 79.7,155.3 79.7,150.2 84.5,150.2 84.5,145.6 89.4,145.6 89.4,140.5 94.2,140.5 94.2,133.0 103.9,133.0 103.9,129.7 108.8,129.7 108.8,124.8 113.6,124.8 113.6,123.9 128.2,123.9 128.2,123.1 137.8,123.1 137.8,121.5 142.7,121.5 142.7,120.1 171.8,120.1 171.8,120.7 176.6,120.7 176.6,121.1 186.3,121.1 186.3,120.4 191.2,120.4 191.2,120.3 196.0,120.3 196.0,120.9 200.8,120.9 200.8,120.4 205.7,120.4 205.7,120.5 210.5,120.5 210.5,120.3 215.4,120.3 215.4,120.5 220.2,120.5 220.2,120.2 234.8,120.2 234.8,123.6 239.6,123.6 239.6,120.8 249.3,120.8 249.3,121.7 254.2,121.7 254.2,120.5 259.0,120.5 259.0,120.7 273.5,120.7 273.5,120.1 278.4,120.1 278.4,120.3 283.2,120.3 283.2,120.0 288.1,120.0 288.1,120.6 297.8,120.6 297.8,120.3 302.6,120.3 302.6,120.8 317.2,120.8 317.2,120.2 326.8,120.2 326.8,120.0 331.7,120.0 331.7,120.3 346.2,120.3 346.2,120.6 351.1,120.6 351.1,120.3 355.9,120.3 355.9,120.4 370.5,120.4 370.5,120.1 380.2,120.1 380.2,120.5 404.4,120.5 404.4,120.1 409.2,120.1 409.2,121.9 414.1,121.9 414.1,120.6 418.9,120.6 418.9,121.3 423.8,121.3 423.8,120.1 438.3,120.1 438.3,121.8 443.2,121.8 443.2,121.3 452.8,121.3 452.8,120.6 462.5,120.6 462.5,123.1 467.4,123.1 467.4,120.1 486.8,120.1 486.8,121.5 491.6,121.5 491.6,122.7 496.5,122.7 496.5,121.9 520.7,121.9 520.7,120.0 540.1,120.0 540.1,123.4 544.9,123.4 544.9,121.7 574.0,121.7 574.0,124.7 588.5,124.7 588.5,128.1 593.4,128.1 593.4,131.4 598.2,131.4 598.2,137.9 607.9,137.9 607.9,141.1 627.3,141.1 627.3,144.9 632.2,144.9 632.2,152.0 637.0,152.0 637.0,155.9 651.5,155.9 651.5,159.4 680.6,159.4 680.6,164.0 700.0,164.0 700,164" class="f-steel" stroke-width="1"/>
+        <polyline points="70,164 70.0,160.8 74.8,160.8 74.8,155.3 79.7,155.3 79.7,150.2 84.5,150.2 84.5,145.6 89.4,145.6 89.4,139.9 94.2,139.9 94.2,133.0 99.1,133.0 99.1,131.4 103.9,131.4 103.9,129.7 108.8,129.7 108.8,121.1 113.6,121.1 113.6,120.3 118.5,120.3 118.5,117.1 123.3,117.1 123.3,114.8 128.2,114.8 128.2,114.0 133.0,114.0 133.0,108.5 137.8,108.5 137.8,107.0 142.7,107.0 142.7,103.5 147.5,103.5 147.5,103.1 152.4,103.1 152.4,97.7 157.2,97.7 157.2,94.7 162.1,94.7 162.1,92.3 166.9,92.3 166.9,89.6 171.8,89.6 171.8,85.6 176.6,85.6 176.6,84.1 181.5,84.1 181.5,72.1 186.3,72.1 186.3,68.4 191.2,68.4 191.2,65.6 196.0,65.6 196.0,56.2 200.8,56.2 200.8,59.8 205.7,59.8 205.7,58.4 210.5,58.4 210.5,63.7 215.4,63.7 215.4,63.9 220.2,63.9 220.2,62.4 225.1,62.4 225.1,62.9 229.9,62.9 229.9,58.8 234.8,58.8 234.8,62.1 239.6,62.1 239.6,57.6 244.5,57.6 244.5,63.3 249.3,63.3 249.3,62.0 254.2,62.0 254.2,63.0 259.0,63.0 259.0,66.3 263.8,66.3 263.8,58.9 268.7,58.9 268.7,56.4 273.5,56.4 273.5,59.4 278.4,59.4 278.4,60.4 283.2,60.4 283.2,56.1 288.1,56.1 288.1,60.8 292.9,60.8 292.9,61.6 297.8,61.6 297.8,61.7 302.6,61.7 302.6,63.8 307.5,63.8 307.5,70.0 317.2,70.0 317.2,82.8 322.0,82.8 322.0,89.1 326.8,89.1 326.8,97.0 331.7,97.0 331.7,99.6 336.5,99.6 336.5,110.5 341.4,110.5 341.4,111.4 351.1,111.4 351.1,116.0 355.9,116.0 355.9,120.0 360.8,120.0 360.8,124.0 365.6,124.0 365.6,125.4 370.5,125.4 370.5,132.1 375.3,132.1 375.3,138.3 380.2,138.3 380.2,141.5 385.0,141.5 385.0,143.6 399.5,143.6 399.5,156.0 414.1,156.0 414.1,160.5 423.8,160.5 423.8,164" class="s-crane" stroke-width="1.5" stroke-dasharray="5 3"/>
+        <line x1="70" y1="120" x2="700" y2="120" class="s-line" stroke-width="1.2" stroke-dasharray="2 3"/>
+        <line x1="70" y1="164" x2="700" y2="164" class="s-line" stroke-width="1.5"/>
+        <g font-size="11" class="t-muted" text-anchor="end"><text x="64" y="168">0%</text><text x="64" y="124">100%</text><text x="64" y="80">200%</text></g>
+        <text x="700" y="66" font-size="12" font-weight="700" fill="currentColor" text-anchor="end">베이 0 · 154 × 15 · 용량 2,225.75 · 블록 94개</text>
+        <text x="700" y="96" font-size="11" class="t-crane" text-anchor="end">release 날 기준 필요 넓이는 최대 245%</text>
+        <line x1="70" y1="216" x2="700" y2="216" class="s-muted" stroke-width=".5"/>
+        <polygon points="70,304 70.0,300.0 74.8,300.0 74.8,293.4 84.5,293.4 84.5,287.4 89.4,287.4 89.4,279.7 99.1,279.7 99.1,276.0 103.9,276.0 103.9,271.2 108.8,271.2 108.8,269.8 113.6,269.8 113.6,267.5 123.3,267.5 123.3,263.1 128.2,263.1 128.2,260.2 162.1,260.2 162.1,260.4 176.6,260.4 176.6,261.0 181.5,261.0 181.5,260.3 186.3,260.3 186.3,260.7 191.2,260.7 191.2,260.3 210.5,260.3 210.5,261.2 225.1,261.2 225.1,261.4 229.9,261.4 229.9,263.8 234.8,263.8 234.8,265.0 239.6,265.0 239.6,260.8 244.5,260.8 244.5,260.3 249.3,260.3 249.3,262.2 254.2,262.2 254.2,260.4 259.0,260.4 259.0,261.1 268.7,261.1 268.7,263.9 273.5,263.9 273.5,260.5 283.2,260.5 283.2,262.0 288.1,262.0 288.1,260.2 302.6,260.2 302.6,260.3 307.5,260.3 307.5,260.1 312.3,260.1 312.3,263.2 317.2,263.2 317.2,260.4 331.7,260.4 331.7,261.2 351.1,261.2 351.1,260.2 355.9,260.2 355.9,260.6 360.8,260.6 360.8,263.2 365.6,263.2 365.6,260.3 370.5,260.3 370.5,260.5 380.2,260.5 380.2,262.3 385.0,262.3 385.0,262.2 389.8,262.2 389.8,260.1 433.5,260.1 433.5,264.4 438.3,264.4 438.3,262.4 457.7,262.4 457.7,260.0 467.4,260.0 467.4,264.0 481.9,264.0 481.9,260.9 486.8,260.9 486.8,261.5 515.8,261.5 515.8,263.8 554.6,263.8 554.6,260.5 588.5,260.5 588.5,265.4 603.1,265.4 603.1,270.4 617.6,270.4 617.6,282.7 637.0,282.7 637.0,289.5 641.8,289.5 641.8,295.7 690.3,295.7 690.3,304.0 700.0,304.0 700,304" class="f-steel" stroke-width="1"/>
+        <polyline points="70,304 70.0,300.0 74.8,300.0 74.8,293.4 84.5,293.4 84.5,287.4 89.4,287.4 89.4,279.7 99.1,279.7 99.1,276.0 103.9,276.0 103.9,271.2 108.8,271.2 108.8,269.8 113.6,269.8 113.6,267.5 118.5,267.5 118.5,264.0 123.3,264.0 123.3,258.1 128.2,258.1 128.2,255.2 133.0,255.2 133.0,251.8 137.8,251.8 137.8,232.3 157.2,232.3 157.2,227.7 162.1,227.7 162.1,212.2 171.8,212.2 171.8,206.0 176.6,206.0 176.6,204.9 181.5,204.9 181.5,207.9 186.3,207.9 186.3,206.1 191.2,206.1 191.2,195.3 196.0,195.3 196.0,198.8 200.8,198.8 200.8,195.5 205.7,195.5 205.7,191.2 210.5,191.2 210.5,199.6 215.4,199.6 215.4,195.2 225.1,195.2 225.1,202.1 229.9,202.1 229.9,208.6 234.8,208.6 234.8,205.9 239.6,205.9 239.6,205.8 244.5,205.8 244.5,204.5 249.3,204.5 249.3,202.7 254.2,202.7 254.2,200.2 259.0,200.2 259.0,205.9 263.8,205.9 263.8,207.2 268.7,207.2 268.7,205.6 273.5,205.6 273.5,203.6 278.4,203.6 278.4,208.6 283.2,208.6 283.2,203.8 288.1,203.8 288.1,210.9 292.9,210.9 292.9,206.8 297.8,206.8 297.8,201.9 302.6,201.9 302.6,220.2 312.3,220.2 312.3,223.3 317.2,223.3 317.2,224.7 322.0,224.7 322.0,228.0 326.8,228.0 326.8,236.3 331.7,236.3 331.7,245.1 341.4,245.1 341.4,249.4 351.1,249.4 351.1,251.3 355.9,251.3 355.9,258.0 365.6,258.0 365.6,263.9 370.5,263.9 370.5,269.4 380.2,269.4 380.2,272.5 385.0,272.5 385.0,279.6 389.8,279.6 389.8,290.3 399.5,290.3 399.5,296.8 423.8,296.8 423.8,304" class="s-crane" stroke-width="1.5" stroke-dasharray="5 3"/>
+        <line x1="70" y1="260" x2="700" y2="260" class="s-line" stroke-width="1.2" stroke-dasharray="2 3"/>
+        <line x1="70" y1="304" x2="700" y2="304" class="s-line" stroke-width="1.5"/>
+        <g font-size="11" class="t-muted" text-anchor="end"><text x="64" y="308">0%</text><text x="64" y="264">100%</text><text x="64" y="220">200%</text></g>
+        <text x="700" y="206" font-size="12" font-weight="700" fill="currentColor" text-anchor="end">베이 1 · 79 × 19 · 용량 1,452.25 · 블록 61개</text>
+        <text x="700" y="236" font-size="11" class="t-crane" text-anchor="end">release 날 기준 필요 넓이는 최대 256%</text>
+        <line x1="70" y1="356" x2="700" y2="356" class="s-muted" stroke-width=".5"/>
+        <polygon points="70,444 70.0,441.2 74.8,441.2 74.8,436.1 79.7,436.1 79.7,433.5 84.5,433.5 84.5,426.7 89.4,426.7 89.4,423.8 94.2,423.8 94.2,420.1 99.1,420.1 99.1,417.1 108.8,417.1 108.8,414.4 113.6,414.4 113.6,411.2 118.5,411.2 118.5,408.3 123.3,408.3 123.3,404.8 128.2,404.8 128.2,403.5 137.8,403.5 137.8,402.5 142.7,402.5 142.7,400.9 147.5,400.9 147.5,401.0 152.4,401.0 152.4,400.1 157.2,400.1 157.2,401.1 162.1,401.1 162.1,400.4 166.9,400.4 166.9,400.8 171.8,400.8 171.8,400.2 181.5,400.2 181.5,400.5 186.3,400.5 186.3,400.1 191.2,400.1 191.2,400.4 196.0,400.4 196.0,400.7 200.8,400.7 200.8,400.4 205.7,400.4 205.7,400.8 210.5,400.8 210.5,400.3 215.4,400.3 215.4,401.0 220.2,401.0 220.2,401.2 225.1,401.2 225.1,400.9 229.9,400.9 229.9,400.0 234.8,400.0 234.8,401.7 239.6,401.7 239.6,400.8 254.2,400.8 254.2,400.0 259.0,400.0 259.0,401.5 263.8,401.5 263.8,401.4 268.7,401.4 268.7,401.0 273.5,401.0 273.5,402.5 278.4,402.5 278.4,400.9 288.1,400.9 288.1,400.2 292.9,400.2 292.9,401.5 297.8,401.5 297.8,400.6 302.6,400.6 302.6,401.8 307.5,401.8 307.5,400.7 317.2,400.7 317.2,401.5 326.8,401.5 326.8,400.2 336.5,400.2 336.5,400.3 341.4,400.3 341.4,401.0 355.9,401.0 355.9,402.0 360.8,402.0 360.8,400.3 365.6,400.3 365.6,400.9 370.5,400.9 370.5,401.0 385.0,401.0 385.0,400.2 414.1,400.2 414.1,400.1 418.9,400.1 418.9,400.9 423.8,400.9 423.8,400.2 433.5,400.2 433.5,402.2 438.3,402.2 438.3,401.8 443.2,401.8 443.2,400.4 462.5,400.4 462.5,400.1 467.4,400.1 467.4,403.3 472.2,403.3 472.2,400.5 496.5,400.5 496.5,402.8 501.3,402.8 501.3,401.7 525.5,401.7 525.5,400.1 535.2,400.1 535.2,401.3 540.1,401.3 540.1,400.0 574.0,400.0 574.0,407.0 593.4,407.0 593.4,410.8 603.1,410.8 603.1,414.1 607.9,414.1 607.9,417.9 612.8,417.9 612.8,421.3 627.3,421.3 627.3,425.3 637.0,425.3 637.0,429.8 646.7,429.8 646.7,435.0 656.4,435.0 656.4,439.8 666.1,439.8 666.1,444.0 700.0,444.0 700,444" class="f-steel" stroke-width="1"/>
+        <polyline points="70,444 70.0,441.2 74.8,441.2 74.8,436.1 79.7,436.1 79.7,433.5 84.5,433.5 84.5,426.7 89.4,426.7 89.4,423.8 94.2,423.8 94.2,420.1 99.1,420.1 99.1,417.1 108.8,417.1 108.8,414.4 113.6,414.4 113.6,408.0 118.5,408.0 118.5,405.0 123.3,405.0 123.3,401.5 128.2,401.5 128.2,397.0 133.0,397.0 133.0,390.3 137.8,390.3 137.8,386.1 142.7,386.1 142.7,378.8 147.5,378.8 147.5,374.5 152.4,374.5 152.4,371.7 157.2,371.7 157.2,364.7 162.1,364.7 162.1,357.8 166.9,357.8 166.9,356.7 171.8,356.7 171.8,346.0 176.6,346.0 176.6,344.8 181.5,344.8 181.5,344.2 186.3,344.2 186.3,341.9 191.2,341.9 191.2,343.4 196.0,343.4 196.0,344.7 200.8,344.7 200.8,345.1 205.7,345.1 205.7,348.8 210.5,348.8 210.5,350.3 215.4,350.3 215.4,351.0 220.2,351.0 220.2,351.3 225.1,351.3 225.1,351.2 229.9,351.2 229.9,350.0 234.8,350.0 234.8,355.9 239.6,355.9 239.6,354.3 244.5,354.3 244.5,353.0 249.3,353.0 249.3,346.7 254.2,346.7 254.2,341.0 259.0,341.0 259.0,346.4 263.8,346.4 263.8,343.7 268.7,343.7 268.7,352.8 273.5,352.8 273.5,356.7 278.4,356.7 278.4,348.3 283.2,348.3 283.2,350.2 288.1,350.2 288.1,350.3 292.9,350.3 292.9,347.6 297.8,347.6 297.8,348.4 302.6,348.4 302.6,352.6 307.5,352.6 307.5,354.9 312.3,354.9 312.3,357.1 317.2,357.1 317.2,361.5 322.0,361.5 322.0,364.9 331.7,364.9 331.7,367.4 336.5,367.4 336.5,371.0 346.2,371.0 346.2,374.2 351.1,374.2 351.1,380.4 355.9,380.4 355.9,388.0 360.8,388.0 360.8,394.1 365.6,394.1 365.6,403.6 370.5,403.6 370.5,408.4 375.3,408.4 375.3,409.0 380.2,409.0 380.2,413.0 385.0,413.0 385.0,421.9 389.8,421.9 389.8,423.4 394.7,423.4 394.7,437.7 423.8,437.7 423.8,444" class="s-crane" stroke-width="1.5" stroke-dasharray="5 3"/>
+        <line x1="70" y1="400" x2="700" y2="400" class="s-line" stroke-width="1.2" stroke-dasharray="2 3"/>
+        <line x1="70" y1="444" x2="700" y2="444" class="s-line" stroke-width="1.5"/>
+        <g font-size="11" class="t-muted" text-anchor="end"><text x="64" y="448">0%</text><text x="64" y="404">100%</text><text x="64" y="360">200%</text></g>
+        <text x="700" y="346" font-size="12" font-weight="700" fill="currentColor" text-anchor="end">베이 2 · 105 × 20 · 용량 2,037.75 · 블록 95개</text>
+        <text x="700" y="376" font-size="11" class="t-crane" text-anchor="end">release 날 기준 필요 넓이는 최대 234%</text>
+        <g font-size="11" class="t-muted" text-anchor="middle"><text x="70.0" y="460">0일</text><text x="166.9" y="460">20일</text><text x="263.8" y="460">40일</text><text x="360.8" y="460">60일</text><text x="457.7" y="460">80일</text><text x="554.6" y="460">100일</text><text x="651.5" y="460">120일</text></g>
+      </svg>
+      </div>
+      <figcaption><span class="mono">prelim_prob_6</span>(블록 250개). 파란 면은 제가 Python으로 재현한 추상 일정에서 날마다 베이에 있는 블록들의 a 합을 용량으로 나눈 값입니다. 솔버의 실제 출력이 아닙니다. 주황 점선은 같은 베이 배정에서 모든 블록이 기다리지 않고 release 날에 들어간다고 했을 때의 값으로, 용량의 2.3~2.6배까지 올라갑니다. 추상 일정은 넘치는 부분을 뒤로 밀어서 용량선 바로 아래에 붙여 놓은 모양입니다. release는 47일에 끝나지만 일정은 128일까지 이어집니다.</figcaption>
+    </figure>
+    <div class="scroll">
+    <table>
+      <thead><tr><th></th><th>Z₁ (지연 합)</th><th>Z₂</th><th>Z₃</th></tr></thead>
+      <tbody>
+        <tr><td>탐욕 초기해 (3,000개 중 최선)</td><td>5,631일</td><td>2,110</td><td>3,786</td></tr>
+        <tr><td>SA 300만 번 뒤</td><td>2,721일</td><td>534</td><td>5,884</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>SA 뒤의 일정에서 블록 250개 중 151개는 납기를 맞추고 99개는 늦습니다. 세 베이는 전체 130일 중 각각 86일, 73일, 86일 동안 용량의 95% 이상이 차 있습니다. Z₃는 오히려 늘었습니다. 이 문제는 w₁ = 6,667, w₃ = 150이라, 선호를 조금 잃고 지연을 줄이는 교환이면 objective가 내려가서 받아들여집니다.</p>
+    <p>누가 기다리게 되었는지를 보면 2장의 통찰 3이 그대로 나타납니다. a가 큰 순으로 50개를 보면 43개가 늦고 평균 지연이 38.4일입니다. a가 작은 순으로 50개를 보면 2개만 늦고 평균 지연이 0.1일입니다. 지연 벌점은 블록 크기와 무관하므로, 같은 용량으로 작은 블록 여러 개를 제때 넣는 쪽이 이득이기 때문입니다. 한 예로 release가 8일로 같은 블록 다섯 개의 결과입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>블록</th><th>R</th><th>P</th><th>D</th><th>a</th><th>추상 베이</th><th>추상 입고 ê</th><th>지연</th><th>투입 순위</th></tr></thead>
+      <tbody>
+        <tr><td>21</td><td>8</td><td>14</td><td>22</td><td>49.2</td><td>1</td><td>8</td><td>0</td><td>43</td></tr>
+        <tr><td>216</td><td>8</td><td>19</td><td>33</td><td>78.6</td><td>0</td><td>8</td><td>0</td><td>42</td></tr>
+        <tr><td>135</td><td>8</td><td>18</td><td>33</td><td>127.5</td><td>2</td><td>8</td><td>0</td><td>41</td></tr>
+        <tr><td>47</td><td>8</td><td>29</td><td>50</td><td>169.8</td><td>0</td><td>8</td><td>0</td><td>40</td></tr>
+        <tr><td>5</td><td>8</td><td>28</td><td>43</td><td>184.4</td><td>0</td><td>88</td><td>73</td><td>241</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>넷은 8일에 바로 들어가고, 가장 큰 블록 5는 88일까지 밀립니다. 투입 순위는 이 추상 입고 시각으로 2장의 정렬을 적용한 것입니다. 같은 날 들어가는 넷 사이에서는 부피가 큰 것이 앞입니다.</p>
+    <p>이웃별로는 이 문제에서 성공률이 크게 달랐습니다. Relocate는 시도의 33%가 자리를 찾았고, Swap은 2.9%, LargeReconstruct는 1.6%였습니다. LargeReconstruct는 7개 이상이 모두 자리를 찾아야 하므로, 이렇게 빽빽한 문제에서는 거의 실패합니다. 자리가 넉넉한 <span class="mono">prelim_prob_1</span>에서는 Relocate와 LargeReconstruct가 시도할 때마다 자리를 찾았습니다.</p>
+    <p class="src">모두 제 Python 재현의 결과입니다. 솔버는 난수열이 다르고, 워커 4개로 9초 동안 훨씬 많이 반복할 것이므로 실제 추상 일정과 수치는 이와 다릅니다. 방향성(큰 블록이 밀린다, 용량선에 붙는다)을 보여 주는 용도로만 읽어 주세요.</p>
+  </section>
+
+  <!-- ================= 5부 ================= -->
+  <div class="part">5부 · 구현 상세</div>
+
+  <section>
+    <h2>시간축 점유를 배열 하나로 관리한다</h2>
+    <p>용량 점유는 <code>used_area[베이][날짜]</code>라는 2차원 배열 하나로 관리합니다. 날짜 칸은 하루 단위이고, 가장 이른 release 날을 0번 칸으로 씁니다. 구간 트리 같은 자료구조는 쓰지 않고 칸을 하나씩 훑습니다. 1장에서 본 대로 한 문제의 기간이 60~170일, P가 3~33일이라 훑을 칸이 많지 않습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>연산</th><th>방법</th><th>드는 일</th></tr></thead>
+      <tbody>
+        <tr><td>블록 넣기·빼기 (<code>add_used_area</code>)</td><td>그 블록이 머무는 P개 칸에 a를 더하거나 뺀다</td><td>칸 P개</td></tr>
+        <tr><td>들어가는지 확인 (<code>can_place</code>)</td><td>P개 칸 각각에서 <span class="mono">used + a ≤ C</span>인지 본다</td><td>칸 P개</td></tr>
+        <tr><td>가장 이른 가능한 날 (초기해에서만)</td><td>R부터 하루씩 늦춰 가며 위 확인을 반복한다</td><td>칸 (밀린 일수 × P)개</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>비교에는 <span class="mono">1e-9</span>의 여유를 둡니다. 넣고 빼기를 반복하면 실수 오차가 쌓이므로, 꼭 맞는 자리가 그 오차 때문에 거부되지 않게 하려는 것으로 보입니다.</p>
+  </section>
+
+  <section>
+    <h2>혼잡 값을 넣고 뺄 때마다 고친다</h2>
+    <p>혼잡 값은 쌍의 곱의 합이라 전체를 다시 세면 비쌉니다. 코드는 블록을 넣고 빼는 그 반복문 안에서 변화량만 반영합니다.</p>
+<pre><span class="c">// src/solver/preoptimize.rs:441  add_used_area() (줄여서 옮김)</span>
+let ratio = area / bay_capacity;                          <span class="c">// 이 블록의 비율 r</span>
+for time in entry_time..entry_time + processing_time {
+    let used_ratio = used[time] / bay_capacity;           <span class="c">// 그날 이미 차 있는 비율</span>
+    if sign &gt; 0.0 {
+        congestion += ratio * used_ratio;                 <span class="c">// 넣을 때: r × (이미 있는 블록들의 비율 합)</span>
+    } else {
+        congestion -= ratio * (used_ratio - ratio);       <span class="c">// 뺄 때: r × (자기를 뺀 나머지의 비율 합)</span>
+    }
+    used[time] += sign * area;
+}</pre>
+    <p>새 블록이 들어오면 그날 이미 있던 블록 각각과 쌍이 하나씩 생깁니다. 그 곱들의 합은 <span class="mono">r × (이미 있는 비율들의 합)</span>이므로, 블록이 몇 개 있든 날짜 칸 하나당 곱셈 한 번으로 끝납니다. 뺄 때는 <code>used</code>에 자기 자신이 들어 있으므로 자기 몫을 빼고 곱합니다.</p>
+  </section>
+
+  <section>
+    <h2>목적 함수는 달라진 부분만 다시 계산한다</h2>
+    <p>지역 탐색은 이웃 하나를 평가하는 일을 수백만 번 반복하므로, 매번 목적 함수를 처음부터 다시 계산하면 느립니다. 바뀐 부분이 값에 준 변화만 계산해 더하고 빼는 방식을 <strong>차분 계산</strong>(delta evaluation)이라고 합니다. 앞 절의 혼잡 값 갱신도 같은 방식입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>항</th><th>Relocate, Swap</th><th>LargeReconstruct</th></tr></thead>
+      <tbody>
+        <tr><td>Z₁, Z₃</td><td>움직인 블록의 옛 값을 빼고 새 값을 더한다</td><td rowspan="2">전체를 다시 계산한다 (<code>evaluate_schedule</code>, 블록 수만큼)</td></tr>
+        <tr><td>Z₂</td><td>베이별 workload 합(<code>loads</code>)만 고치고, 베이 수만큼 훑어 최대·최소를 다시 구한다</td></tr>
+        <tr><td>혼잡</td><td colspan="2">위의 <code>add_used_area</code>가 넣고 뺄 때 이미 고쳐 둔 값을 쓴다</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>1장에서 본 "Z₁과 Z₃는 블록별 값의 단순 합"이라는 성질이 여기서 쓰입니다. 블록 하나를 옮기면 그 블록의 값만 바뀝니다.</p>
+    <p>한 가지 더 눈에 띄는 점은 <strong>반복마다 상태 전체를 복사한다</strong>는 것입니다(<code>propose</code>, 837줄의 <code>current.clone()</code>). 이웃이 실패하거나 SA가 거절하면 복사본을 버리면 되므로, 되돌리는 코드가 따로 없습니다. 복사하는 양은 블록 수와 (베이 수 × 날짜 칸 수)에 비례합니다. 재현한 <span class="mono">prelim_prob_6</span>에서는 날짜 칸이 130개라, 블록 250개와 실수 390개를 복사하는 정도입니다. 초기해 뒤에 탐색 범위를 줄이는 것(3부)은 이 배열을 짧게 만드는 역할도 합니다.</p>
+    <p class="src"><span class="mono">preoptimize.rs:566</span>~597줄(Relocate의 차분), 675~697줄(Swap), 796~807줄(LargeReconstruct의 전체 재계산), 419줄(배열 줄이기).</p>
+  </section>
+
+  <!-- ================= 6부 ================= -->
+  <div class="part">6부 · 2단계로 넘어가는 지점</div>
+
+  <section>
+    <h2>넘어가는 것은 블록별 (베이, 입고 시각)뿐</h2>
+    <p>SA가 끝나면 공유 최선해의 일정이 <code>PreoptimizeState</code>로 바뀌어 <code>optimize()</code>에 전달됩니다(<code>finish</code>, 865줄). 함께 들어 있는 <code>score</code>는 혼잡 벌점을 뺀 추상 목적 함수 값이고, 로그에만 찍힙니다. 2단계는 이 결과를 두 곳에서 씁니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>쓰는 곳</th><th>쓰는 값</th><th>용도</th></tr></thead>
+      <tbody>
+        <tr><td><code>build_admission_order</code><br><span class="mono">optimize.rs:232</span></td><td>추상 입고 시각 ê</td><td>투입 순서의 첫 번째 정렬 기준 (2장)</td></tr>
+        <tr><td><code>extend_schedule</code><br><span class="mono">optimize.rs:289</span></td><td><span class="mono">max(ê, R) + P</span>, 즉 추상 일정대로 했을 때의 출고 시각</td><td>새 블록을 삽입할 때의 기준 지연</td></tr>
+      </tbody>
+    </table>
+    </div>
+<pre><span class="c">// src/solver/optimize.rs:289  extend_schedule() — 새로 들어오는 블록마다</span>
+let entry_time = preopt.blocks[block_id].entry_time.max(block.release_time);
+original_by_id[block_id] = Some(ScheduledBlock {
+    block_id,
+    bay_id: preopt.blocks[block_id].bay_id,
+    orient_idx: 0, x: 0, y: 0,                 <span class="c">// 좌표와 방향은 아직 없다</span>
+    entry_time,
+    exit_time: entry_time + block.processing_time,
+});</pre>
+    <p>이 임시 값은 탐욕 삽입 함수 <code>insert_greedy</code>에 <code>original</code>이라는 이름으로 전달됩니다. 삽입 함수는 여기서 <strong>출고 시각만</strong> 읽어 "추상 일정대로 했을 때의 지연"을 구하고(<span class="mono">insert.rs:108</span>), 지연이 그 이하인 자리가 나오면 그 방향에서는 행(y)을 10개만 더 보고 탐색을 끝내는 기준으로 씁니다(<span class="mono">insert.rs:170</span>). 자세한 것은 5장에서 다룹니다.</p>
+    <div class="note">
+      <p><strong>추상 베이는 삽입에서 읽지 않습니다.</strong></p>
+      <p>임시 값에 추상 베이가 들어가기는 하지만, <code>insert_greedy</code>는 <code>original</code>에서 블록 번호와 출고 시각만 읽고, 베이는 블록의 선호 순서대로 모두 시도합니다. 제가 코드를 추적한 범위에서는 2단계에서 추상 베이를 읽는 곳을 찾지 못했습니다. 추상 베이는 추상 문제 안에서 용량 경쟁을 계산하는 데 쓰이고, 그 결과가 입고 시각을 통해서만 2단계에 전달됩니다.</p>
+    </div>
+    <p>2장에서 적은 "2단계가 추상 일정에서 읽는 것은 두 가지뿐"의 구체적인 모습이 이것입니다. 순서는 추상 입고 시각으로 고정되지만, 실제 베이·좌표·시각은 모두 2단계가 다시 정합니다.</p>
+  </section>
+
+  <!-- ================= 7부 ================= -->
+  <div class="part">7부 · 한계와 개선 방향</div>
+
+  <section>
+    <h2>이 근사가 놓치는 것</h2>
+    <ul class="plain">
+      <li><strong>넓이의 합은 놓을 수 있다는 보장이 아닙니다.</strong> <span class="mono">prelim_prob_6</span>의 베이 0은 154 × 15로 매우 길쭉합니다. 넓이로는 남아도 세로 15 안에 모양이 안 맞으면 못 놓습니다. α와 β로 이를 평균적으로 보정할 뿐입니다.</li>
+      <li><strong>층을 구분하지 않습니다.</strong> 합집합을 쓰므로 돌출부 아래에 낮은 블록을 넣어 자리를 아끼는 배치는 반영되지 않습니다. 이 점에서는 실제보다 자리를 많이 잡습니다.</li>
+      <li><strong>크레인 규칙이 없습니다.</strong> 가려서 못 들어가거나 못 나가는 상황은 계산에 없습니다. 이 점에서는 실제보다 낙관적입니다.</li>
+      <li><strong>α, β, 패딩이 모든 문제에 같은 값입니다.</strong> 문제마다 블록 모양과 베이 비율이 다른데도 고정값을 씁니다.</li>
+      <li><strong>한 방향으로만 흐릅니다.</strong> 추상 일정으로 순서를 한 번 정하면, 2단계에서 그 순서가 실제 배치와 안 맞는다는 것이 드러나도 순서를 다시 만들지 않습니다.</li>
+    </ul>
+    <p>그런데도 효과는 큽니다. 2장에서 본 대로 추상 사전최적화를 납기 순 투입으로 바꾸면 목적 함수 값이 10.3% 나빠집니다(보고서의 표). 그리고 순서가 완벽하지 않아도 되는 이유가 있습니다. 2단계는 이미 놓은 블록을 얼리지 않고 큰 재구성으로 여러 블록을 함께 고칠 수 있어서, 저자는 불완전한 투입 순서에서도 회복할 수 있다고 설명합니다.</p>
+  </section>
+
+  <section>
+    <h2>저자가 밝힌 개선 방향</h2>
+    <ul class="plain">
+      <li><strong>보고서 (Further Improvement Plan):</strong> 근사 점유 넓이와 혼잡 값을 개선해 추상 일정과 실제 배치 사이의 차이를 줄이겠다고 적었습니다.</li>
+      <li><strong>최종 발표 (Future Directions):</strong> "피드백을 받는 사전최적화"를 제안합니다. 지금은 사전최적화가 낸 순서를 고정하고 차례로 최적화하는데, 그 순서는 실제 채우기·일정 제약을 정확히 반영하지 못하면 좋지 않을 수 있습니다. 실제 최적화의 결과를 사전최적화 모델에 되돌려 주어, 모델이 실제 문제에서 무엇이 가능한지를 더 잘 담게 하자는 방향입니다.</li>
+    </ul>
+    <h3>자료와 코드가 다른 부분</h3>
+    <p>읽으면서 확인한 차이입니다. 모두 설명의 표현 차이이고, 이 장은 코드를 기준으로 썼습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>항목</th><th>자료의 설명</th><th>코드</th></tr></thead>
+      <tbody>
+        <tr><td>베이 용량</td><td>최종 발표 부록: "C<sub>j</sub>는 베이 j의 넓이"</td><td>(W − 0.5)(H − 0.5)에 하한 적용. 보고서의 설명과는 같음</td></tr>
+        <tr><td>용량의 하한</td><td>보고서: 베이 j에 "들어가야 하는" 블록의 a 중 최댓값</td><td>베이 j에 들어갈 수 있는 모든 블록의 a 중 최댓값</td></tr>
+        <tr><td>초기해의 순서 점수</td><td>보고서: workload도 점수에 섞는다고 읽힘</td><td>workload는 점수가 같을 때의 순위 결정에만 쓰임</td></tr>
+        <tr><td>추상 일정 그림</td><td>발표 자료의 간트 차트와 점유 그래프</td><td>솔버 출력이 아니라 무작위로 만든 블록 20개, 용량 100의 예시 (<span class="mono">generate_relaxed_schedule_figure.py</span>)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="src">보고서는 <span class="mono">report/technical-report/</span>의 "Abstract preoptimization" 절과 "Further Improvement Plan" 절, 발표는 <span class="mono">report/presentation-final/ogc2026-final.pdf</span>의 슬라이드 5, 11과 부록의 슬라이드 15입니다.</p>
+  </section>
+
+  <section>
+    <h2>이해 확인</h2>
+    <details>
+      <summary>어떤 베이가 좁아서 blocks[2]를 방향 1, 3, 5, 7로만 놓을 수 있다면, 그 베이에서 이 블록의 a는 얼마인가요?</summary>
+      <p>226.9입니다. a는 그 베이에 들어가는 방향들만 놓고 구한 최솟값입니다. 방향 0, 2, 4, 6이 빠지면 남는 방향의 값은 모두 226.9입니다. 같은 블록이라도 베이에 따라 a가 달라질 수 있는 이유입니다.</p>
+    </details>
+    <details>
+      <summary>추상 일정이 모든 날 용량 제약을 만족합니다. 그 베이 배정과 입고 시각 그대로 실제 배치를 만들 수 있나요?</summary>
+      <p>보장되지 않습니다. 용량 제약은 넓이의 합만 봅니다. 실제로는 모양이 맞아야 하고, 같은 높이에서 겹치면 안 되고, 크레인이 오르내릴 길이 비어 있어야 합니다. 그래서 2단계는 추상 일정을 지키지 않고, 순서와 기준 지연으로만 씁니다.</p>
+    </details>
+    <details>
+      <summary>빽빽한 일정에서 LargeReconstruct가 Relocate보다 훨씬 자주 실패하는 이유는 무엇인가요?</summary>
+      <p>뺀 블록 7~13개가 모두 자리를 찾아야 성공이기 때문입니다. 각 블록은 무작위 (베이, 시각)을 8번까지 뽑아 보는데, 하나라도 8번 안에 못 찾으면 전체가 무효입니다. 블록 하나가 자리를 찾을 확률이 1보다 꽤 작으면, 그것을 7번 이상 곱한 값은 매우 작아집니다.</p>
+    </details>
+    <details>
+      <summary>사전최적화가 블록 A에 (베이 2, 입고 40일)을 냈습니다. 2단계에서 이 두 값은 각각 어떻게 쓰이나요?</summary>
+      <p>입고 40일은 두 번 쓰입니다. A가 몇 번째로 투입될지를 정하고, A를 삽입할 때 "40일에 들어갔을 때의 지연"이 기준값이 됩니다. 베이 2는 삽입 과정에서 읽지 않습니다. 삽입은 A의 선호 순서대로 모든 베이를 시도합니다.</p>
+    </details>
+  </section>
+  <div class="pager"><a href="#ch2">← 이전: 2장 핵심 통찰과 전체 구조</a><a href="#ch4">다음: 4장 충돌 판정 →</a></div>
+  </article>

@@ -1,0 +1,787 @@
+  <article class="chapter" id="ch6">
+  <header>
+    <div class="kicker">6 / 8</div>
+    <h1>롤링 호라이즌: 스무 개씩 넣고, 넣을 때마다 전체를 다시 고친다</h1>
+  </header>
+
+  <section>
+    <p class="lead">2장에서 본 2단계의 뼈대는 반복문 하나였습니다. 투입 순서대로 블록을 20개쯤 추가하고(확장), 지금까지 들어온 블록 전체를 SA로 고치고, 다시 20개를 추가합니다. 이 장은 그 반복문 <code>optimize()</code>를 줄 단위로 따라가고, 마지막에 해가 솔버 밖으로 나가 대회에 제출되기까지를 봅니다.</p>
+    <p>다섯 부분입니다. 1부는 호라이즌이 실제로 어떻게 잘리고 시간이 얼마나 돌아가는지를 숫자로 봅니다. 2부는 호라이즌 하나 안에서 일어나는 일(마감 계산, 확장, SA 호출)입니다. 3부는 w₂를 언제 켜는지, 4부는 후보 해 출력과 파이썬 쪽 검증, 5부는 저자의 보고서와 코드가 다른 부분입니다.</p>
+    <div class="note">
+      <p><strong>이 장의 수치에 대해</strong></p>
+      <p>이 기기에는 Rust 툴체인이 없어 솔버를 실행하지 못했습니다. 그래서 시간 수치는 모두 <span class="mono">params/default.yaml</span>의 값과 코드의 식으로 계산한 <strong>명목 값</strong>입니다. 확장이 몇 번 시도되는지, 후보가 실제로 몇 번 출력되는지 같은 실행 결과는 싣지 못했습니다.</p>
+    </div>
+  </section>
+
+  <!-- ================= 1부 ================= -->
+  <div class="part">1부 · 숫자로 보는 호라이즌</div>
+
+  <section>
+    <h2>학습 데이터 14개는 몇 개의 호라이즌으로 잘리나</h2>
+    <p>호라이즌의 수와 크기는 블록 수 N만으로 정해집니다. 학습 데이터 14개의 N은 100, 150, 200, 250, 300 다섯 가지뿐이라, 같은 N끼리 묶으면 이렇습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>블록 수 N</th><th>해당 문제</th><th>호라이즌 수</th><th>호라이즌 크기</th><th>호라이즌이 끝날 때의 누적 블록 수</th><th>마지막 호라이즌의 시간 비중</th></tr></thead>
+      <tbody>
+        <tr><td>100</td><td>prelim_prob_1</td><td>5</td><td>20이 5개</td><td class="mono">20, 40, 60, 80, 100</td><td>45.5%</td></tr>
+        <tr><td>150</td><td>prelim_prob_2, 4<br>stage2_prob_4, 5</td><td>8</td><td>18이 2개, 19가 6개</td><td class="mono">18, 37, 56, 75, 93, 112, 131, 150</td><td>31.6%</td></tr>
+        <tr><td>200</td><td>prelim_prob_3, 5<br>stage2_prob_1, 8</td><td>10</td><td>20이 10개</td><td class="mono">20, 40, 60, …, 180, 200</td><td>26.0%</td></tr>
+        <tr><td>250</td><td>prelim_prob_6<br>stage2_prob_2, 3</td><td>13</td><td>19가 10개, 20이 3개</td><td class="mono">19, 38, 57, 76, 96, 115, 134, 153, 173, 192, 211, 230, 250</td><td>20.7%</td></tr>
+        <tr><td>300</td><td>stage2_prob_6, 7</td><td>15</td><td>20이 15개</td><td class="mono">20, 40, 60, …, 280, 300</td><td>18.1%</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>자르는 코드는 네 줄입니다.</p>
+<pre><span class="c">// src/solver/optimize.rs:250</span>
+fn build_horizons(order: &amp;[usize], base_horizon_size: usize) -> Vec&lt;Range&lt;usize>> {
+    let horizon_count = order.len().div_ceil(base_horizon_size);          <span class="c">// ⌈N / 20⌉</span>
+    (0..horizon_count)
+        .map(|index| order.len() * index / horizon_count                   <span class="c">// ⌊N·i / 개수⌋ 부터</span>
+                  .. order.len() * (index + 1) / horizon_count)            <span class="c">// ⌊N·(i+1) / 개수⌋ 앞까지</span>
+        .collect()
+}</pre>
+    <ul class="plain">
+      <li><strong>호라이즌은 투입 순서의 구간입니다.</strong> <code>order</code>는 블록 번호를 투입 순서대로 늘어놓은 배열이고(2장), 호라이즌 하나는 그 배열의 연속된 구간 <span class="mono">시작..끝</span>입니다. N = 250이면 첫 호라이즌은 <span class="mono">order[0..19]</span>, 둘째는 <span class="mono">order[19..38]</span>입니다.</li>
+      <li><strong>구간의 끝이 곧 누적 블록 수입니다.</strong> 코드에서 <code>horizon.end</code>가 "이 호라이즌이 끝났을 때 들어와 있는 블록 수"이고, 뒤에서 시간 배분의 가중치로 쓰입니다.</li>
+      <li><strong>20은 크기의 상한입니다.</strong> 20개씩 자르고 남는 것을 마지막에 몰지 않고, 개수를 먼저 ⌈N / 20⌉으로 정한 뒤 고르게 나눕니다. 그래서 N = 150이면 20개짜리 7개와 10개짜리 1개가 아니라 18~19개짜리 8개가 됩니다.</li>
+    </ul>
+    <p class="src">표는 <span class="mono">train/</span>의 14개 파일에서 블록 수를 읽어 위 식으로 직접 계산했습니다. 마지막 열은 (마지막 누적 블록 수)² ÷ Σ(누적 블록 수)²입니다. 각 호라이즌에 실제로 어떤 블록이 들어가는지는 추상 사전최적화의 결과가 있어야 알 수 있어서 계산하지 못했습니다.</p>
+  </section>
+
+  <section>
+    <h2>제한 시간이 달라지면 시간은 어떻게 나뉘나</h2>
+    <p>대회의 제한 시간은 몇 분에서 30분 사이이고 미리 알 수 없습니다(1장). 그래서 시간과 관련된 값은 모두 제한 시간에서 계산합니다. 대회 제한 시간을 T라고 하면 이렇게 깎여 나갑니다.</p>
+<pre>T                      대회 제한 시간. 파이썬 함수 algorithm(prob_info, timelimit)이 받는 값
+T − 3                  솔버에 넘기는 제한 시간     (검증 여유 2초 + 반환 여유 1초를 뺌, tools/myalgorithm.py:279)
+T − 5                  솔버 내부 마감              (solve_time_buffer_seconds 2초를 더 뺌, src/solver.rs:42)
+min((T − 3) × 10%, 10) 추상 사전최적화의 시간 상한 (src/solver.rs:57)
+나머지                  2단계(롤링 호라이즌)의 예산</pre>
+    <p>블록 250개 문제(호라이즌 13개)를 기준으로 세 가지 제한 시간을 계산하면 다음과 같습니다. 단위는 초입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th></th><th>T = 60</th><th>T = 300</th><th>T = 1800</th></tr></thead>
+      <tbody>
+        <tr><td>솔버에 넘기는 제한</td><td>57</td><td>297</td><td>1797</td></tr>
+        <tr><td>솔버 내부 마감</td><td>55</td><td>295</td><td>1795</td></tr>
+        <tr><td>추상 사전최적화 상한</td><td>5.7</td><td>10</td><td>10</td></tr>
+        <tr><td>2단계 예산</td><td>49.3</td><td>285</td><td>1785</td></tr>
+        <tr><td>호라이즌 1 (블록 19개)</td><td>0.06</td><td>0.34</td><td>2.14</td></tr>
+        <tr><td>호라이즌 13 (블록 250개)</td><td>10.2</td><td>59.1</td><td>370.2</td></tr>
+        <tr><td>　그중 확장</td><td>0.51</td><td>2.96</td><td>5.00 (상한)</td></tr>
+        <tr><td>　그중 SA</td><td>9.7</td><td>56.2</td><td>365.2</td></tr>
+        <tr><td>13개 호라이즌의 확장 시간 합</td><td>2.5</td><td>14.2</td><td>44.9</td></tr>
+        <tr><td>후보 해 출력 간격 (4부)</td><td>10</td><td>10</td><td>37.0</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <ul class="plain">
+      <li><strong>사전최적화는 10초에서 멈춥니다.</strong> T가 103초를 넘으면 상한 10초에 걸리므로, 제한 시간이 길수록 늘어난 시간은 거의 전부 2단계로 갑니다.</li>
+      <li><strong>확장은 호라이즌마다 최대 5초입니다.</strong> 호라이즌 몫의 5%이되 5초를 넘지 않습니다. T = 1800이면 마지막 호라이즌의 몫 370초 중 확장은 5초(1.4%)뿐입니다.</li>
+      <li><strong>짧은 제한에서는 앞쪽 호라이즌이 극히 짧습니다.</strong> T = 60이면 첫 호라이즌은 0.06초이고 그중 확장은 0.003초입니다. 그래도 확장은 최소 한 번의 시도를 끝까지 마치게 되어 있어서(2부) 블록이 빠지는 일은 없습니다.</li>
+    </ul>
+    <p class="src">호라이즌별 시간은 <span class="mono">src/solver/optimize.rs:443</span>의 식을 순서대로 적용해 계산했습니다. 사전계산(4장)에 걸리는 시간은 실행해야 알 수 있어서 0으로 두었고, 실제로는 그만큼 2단계 예산이 줄어듭니다. 2장의 막대그래프는 솔버에 300초를 직접 준 경우(마지막 호라이즌 59.7초)이고, 이 표의 T = 300은 파이썬 함수가 받은 값이라 솔버에는 297초가 갑니다.</p>
+  </section>
+
+  <!-- ================= 2부 ================= -->
+  <div class="part">2부 · 호라이즌 하나 안에서 일어나는 일</div>
+
+  <section>
+    <h2>한 호라이즌의 시간 구성</h2>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 226" role="img" aria-label="대회 제한 300초, 블록 250개일 때의 시간선. 사전최적화 10초 뒤에 13개 호라이즌이 이어지고 뒤로 갈수록 길어진다. 마지막 호라이즌 59.1초를 확대하면 확장 3.0초와 병렬 SA 56.2초로 나뉜다.">
+        <text x="40" y="18" font-size="12" class="t-muted">대회 제한 300초 · 블록 250개일 때의 명목 시간선 (가로 = 시간)</text>
+        <text x="40" y="42" font-size="11" fill="currentColor">사전최적화 10초</text>
+        <text x="685" y="42" font-size="11" class="t-crane" text-anchor="end">솔버 내부 마감 295초</text>
+        <rect x="40" y="50" width="22" height="30" class="f-steel" stroke-width="1"/>
+        <g class="f-hull" stroke-width="0.8">
+          <rect x="62.0" y="50" width="0.8" height="30"/><rect x="62.8" y="50" width="3.0" height="30"/><rect x="65.8" y="50" width="6.7" height="30"/>
+          <rect x="72.5" y="50" width="12.0" height="30"/><rect x="84.5" y="50" width="19.2" height="30"/><rect x="103.7" y="50" width="27.5" height="30"/>
+          <rect x="131.2" y="50" width="37.4" height="30"/><rect x="168.6" y="50" width="48.7" height="30"/><rect x="217.3" y="50" width="62.3" height="30"/>
+          <rect x="279.6" y="50" width="76.7" height="30"/><rect x="356.3" y="50" width="92.6" height="30"/><rect x="448.9" y="50" width="110.1" height="30"/>
+        </g>
+        <rect x="559" y="50" width="130" height="30" class="f-hull" stroke-width="2"/>
+        <rect x="689" y="50" width="11" height="30" class="f-bay" stroke-width="1"/>
+        <line x1="689" y1="46" x2="689" y2="86" class="s-crane" stroke-width="1.5" stroke-dasharray="4 3"/>
+        <g font-size="11" fill="currentColor" text-anchor="middle">
+          <text x="94.1" y="69">5</text><text x="117.5" y="69">6</text><text x="149.9" y="69">7</text><text x="193" y="69">8</text><text x="248.5" y="69">9</text>
+          <text x="318" y="69">10</text><text x="402.6" y="69">11</text><text x="504" y="69">12</text><text x="624" y="69">13</text>
+        </g>
+        <g font-size="10" class="t-muted" text-anchor="middle">
+          <text x="62" y="94" text-anchor="start">1~6 합 31.5</text>
+          <text x="149.9" y="94">17.0</text><text x="193" y="94">22.1</text><text x="248.5" y="94">28.3</text><text x="318" y="94">34.9</text>
+          <text x="402.6" y="94">42.1</text><text x="504" y="94">50.0</text><text x="624" y="94">59.1초</text>
+        </g>
+        <path d="M559,80 V100 L40,128" class="s-muted" stroke-width="1" stroke-dasharray="3 3"/>
+        <path d="M689,86 V100 L700,128" class="s-muted" stroke-width="1" stroke-dasharray="3 3"/>
+        <text x="470" y="121" font-size="11.5" fill="currentColor">호라이즌 13 확대: 235.9초 → 295.0초</text>
+        <rect x="40" y="128" width="33" height="36" class="f-crane" stroke-width="1.5"/>
+        <rect x="73" y="128" width="627" height="36" class="f-steel" stroke-width="1.5"/>
+        <text x="386" y="150" font-size="12" fill="currentColor" text-anchor="middle">병렬 SA 56.2초 · 들어온 블록 250개 전체를 고친다</text>
+        <line x1="56" y1="164" x2="56" y2="182" class="s-crane" stroke-width="1.5"/>
+        <text x="40" y="196" font-size="12" class="t-crane">확장 3.0초 · 이번 몫의 5%(최대 5초) · 새 블록 20개를 끼워 넣는다</text>
+        <text x="40" y="216" font-size="11" class="t-muted">호라이즌 1~12도 구성은 같고 길이만 다릅니다. 295초 뒤의 5초는 4부에서 다룹니다.</text>
+      </svg>
+      </div>
+      <figcaption>호라이즌 하나는 "확장 → SA" 두 구간입니다. 길이는 앞 절의 표와 같은 방법으로 계산한 명목 값이고, 막대 폭은 시간에 비례합니다. 호라이즌 1~4는 합쳐서 10.2초라 거의 보이지 않습니다.</figcaption>
+    </figure>
+    <p>호라이즌 하나에서 코드가 하는 일은 순서대로 넷입니다. ① 이번 호라이즌의 w₂와 마감을 계산한다. ② 워커마다 새 블록들을 자기 해에 끼워 넣는다(확장). ③ 워커들의 해를 SA에 넘겨 마감까지 고친다. ④ SA가 돌려준 워커별 해를 다음 호라이즌으로 넘긴다.</p>
+  </section>
+
+  <section>
+    <h2>마감은 호라이즌이 시작될 때마다 다시 계산한다</h2>
+<pre><span class="c">// src/solver/optimize.rs:443</span>
+let now = timer.elapsed_seconds();
+let remaining_weight: f64 = horizons[horizon_index..]                      <span class="c">// 이번 것을 포함해 남은 호라이즌들</span>
+    .iter()
+    .map(|remaining| (remaining.end as f64).powf(phase_params.time_allocation_power))
+    .sum();
+let current_weight = (horizon.end as f64).powf(phase_params.time_allocation_power);
+let horizon_deadline = now + (deadline - now).max(0.0) * current_weight / remaining_weight;</pre>
+    <p>호라이즌의 가중치는 (누적 블록 수)<sup>γ</sup>이고 γ는 <code>time_allocation_power</code> = 2.0입니다. 이번 호라이즌의 몫은 다음과 같습니다.</p>
+    <div class="formula">이번 몫 = (전체 마감 − 지금) × 이번 가중치 ÷ (이번 것부터 끝까지의 가중치 합)</div>
+    <p>미리 표를 만들어 두지 않고 "지금"과 "남은 호라이즌"만으로 계산한다는 점이 핵심입니다. 모든 호라이즌이 제 몫만큼만 쓰면 이 식은 처음에 전체 예산을 가중치 비율로 나눈 것과 같은 결과를 냅니다. 어느 호라이즌이 늦게 끝나면, 늦어진 만큼을 남은 호라이즌들이 가중치 비율대로 나눠서 덜 받습니다. 마지막 호라이즌에서는 이번 가중치와 남은 가중치 합이 같으므로 마감이 정확히 전체 마감이 됩니다.</p>
+    <p>T = 300, 블록 250개에서 호라이즌 9가 예정보다 5초 늦게 끝났다고 가정하고 계산하면 이렇습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th></th><th>호라이즌 10</th><th>호라이즌 11</th><th>호라이즌 12</th><th>호라이즌 13</th><th>끝나는 시각</th></tr></thead>
+      <tbody>
+        <tr><td>예정대로일 때의 몫</td><td>34.9</td><td>42.1</td><td>50.0</td><td>59.1</td><td>295.0</td></tr>
+        <tr><td>호라이즌 9가 5초 늦었을 때</td><td>33.9</td><td>41.0</td><td>48.7</td><td>57.5</td><td>295.0</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>늦어질 수 있는 곳은 여러 군데입니다. 사전계산과 사전최적화가 예상보다 오래 걸릴 수 있고, 확장은 시도 하나를 시작하면 끝날 때까지 시계를 보지 않으며, SA도 진행 중인 반복 하나는 마치고 멈춥니다. 어디서 늦어지든 다음 호라이즌이 시작될 때 남은 시간으로 다시 나누므로 따로 보정할 것이 없습니다. <code>(deadline - now).max(0.0)</code>은 이미 전체 마감을 넘긴 경우를 위한 것입니다. 그때는 몫이 0이 되어 확장은 한 번만 시도하고 SA는 건너뜁니다.</p>
+
+    <h3>γ = 2.0은 무슨 뜻인가</h3>
+    <p>γ를 바꿔 가며 같은 조건(T = 300, 블록 250개, 2단계 예산 285초)으로 계산하면 차이가 보입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>γ</th><th>호라이즌 1의 몫</th><th>호라이즌 13의 몫</th><th>앞쪽 6개 호라이즌의 비중</th></tr></thead>
+      <tbody>
+        <tr><td>0 (균등)</td><td>21.9초</td><td>21.9초</td><td>46.2%</td></tr>
+        <tr><td>1</td><td>3.1초</td><td>40.9초</td><td>23.0%</td></tr>
+        <tr><td><strong>2 (기본값)</strong></td><td>0.34초</td><td>59.1초</td><td>11.0%</td></tr>
+        <tr><td>3</td><td>0.03초</td><td>76.1초</td><td>5.3%</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>앞쪽 6개 호라이즌이 끝나면 블록의 46%(115개)가 들어와 있습니다. 기본값에서는 그때까지 전체 시간의 11%만 씁니다. 보고서는 γ를 1보다 크게 잡는 이유로 셋을 듭니다. 뒤쪽 호라이즌일수록 서로 얽힌 블록이 많고, 이웃 하나를 평가하는 비용이 크고, 최종 목적 함수에 가깝다는 것입니다. 동시에 앞쪽 호라이즌도 블록이 더 들어와 자리가 줄기 전에 채우기 구조를 잡을 시간은 받아야 한다고 적고 있습니다.</p>
+    <p class="src">표의 값은 직접 계산했습니다. 2.0이 다른 값보다 얼마나 좋은지는 보고서에 수치가 없고, 저도 실행해 보지 못했습니다. 보고서는 호라이즌 크기와 시간 배분을 문제마다 조정하는 것을 앞으로의 개선 과제로 적었습니다.</p>
+  </section>
+
+  <section>
+    <h2>확장 ①: 새 블록은 어떤 값으로 출발하나</h2>
+    <p>확장은 <code>extend_schedule()</code> 함수입니다. 워커 하나의 해(지금까지 들어온 블록들의 일정)와 새 블록 번호들을 받아, 새 블록까지 모두 놓인 해를 돌려줍니다. 해는 1장에서 본 <code>ScheduledBlock</code>의 목록이므로, 새 블록에도 일단 <code>ScheduledBlock</code> 하나를 만들어 줘야 합니다.</p>
+<p>이 임시 값을 만드는 코드는 3장 6부에서 봤습니다(<span class="mono">src/solver/optimize.rs:289</span>). 입고 시각에는 추상 입고 시각(release보다 이르면 release)을, 출고 시각에는 거기에 P를 더한 값을, 베이에는 추상 베이를 넣고, 방향과 좌표는 0으로 채웁니다.</p>
+    <p>1장의 예시 블록 <span class="mono">prelim_prob_1</span>의 <span class="mono">blocks[2]</span>(R = 30, P = 6, D = 36)로 보겠습니다. 추상 사전최적화가 이 블록에 베이 2, 입고 33일을 줬다고 <strong>가정</strong>하면(실제 값은 솔버를 실행해야 나옵니다) 만들어지는 값은 이렇습니다.</p>
+<pre>ScheduledBlock { block_id: 2, bay_id: 2, orient_idx: 0, x: 0, y: 0, entry_time: 33, exit_time: 39 }</pre>
+    <p>이것은 실제 배치가 아닙니다. 좌표 (0, 0)과 방향 0은 채워 넣은 값일 뿐이고, 이 블록은 아직 일정에 들어가 있지 않습니다. 이 값은 탐욕 삽입 함수 <code>insert_greedy</code>에 "원래 값"(<code>original</code>)으로 넘어갑니다. 5장 5부에서 본 대로 그 함수가 여기서 읽는 것은 블록 번호와 출고 시각뿐입니다. 출고 시각에서 "원래 지연" = max(0, 39 − 36) = 3일을 계산하고, 지연이 3일 이하인 자리를 찾으면 그 방향의 탐색을 일찍 마무리합니다. 추상 베이 2는 읽지 않고, 베이는 이 블록의 선호 순서대로 모두 살펴봅니다.</p>
+    <p>정리하면 추상 입고 시각은 투입 순서를 정하고, 삽입에서는 "추상 일정만큼만 늦어도 충분히 좋은 자리"라는 기준 하나로만 남습니다.</p>
+    <p class="src"><code>insert_greedy</code>가 <code>original</code>에서 읽는 필드는 <span class="mono">src/solver/insert.rs:94</span>(<code>block_id</code>)와 <span class="mono">:108</span>(<code>exit_time</code>)에서 확인했습니다. 살펴볼 베이의 순서는 호출할 때 넘기는 <code>pre.bay_order_by_pref[block_id]</code>입니다(<span class="mono">optimize.rs:370</span>).</p>
+  </section>
+
+  <section>
+    <h2>확장 ②: 시도를 반복해 가장 좋은 것을 남긴다</h2>
+    <p>새 블록 20개를 기존 일정 뒤에 그냥 덧붙이지 않습니다. 기존 블록 몇 개를 함께 빼서 새 블록과 섞어 다시 넣어 보고, 이것을 시간이 될 때까지 되풀이해 가장 좋은 결과 하나를 남깁니다. 이 한 번을 <strong>시도</strong>(trial)라고 부르겠습니다.</p>
+<pre><span class="c">// src/solver/optimize.rs:303  extend_schedule() 의 시도 반복 (요약)</span>
+let mut best = None;
+'trial: loop {
+    if best.is_some() &amp;&amp; 지금 >= 확장 마감 { break; }              <span class="c">// 완성된 해가 하나는 있어야 끝난다</span>
+
+    <span class="c">// ① 기존 블록 중 뺄 것을 고른다 (기존 일정이 비어 있으면 건너뛴다)</span>
+    removed_ids = choose_removed_blocks(base_schedule, sample_removed_count(…), …);
+
+    <span class="c">// ② 뺀 블록을 제외한 일정, 베이별 작업량, 남은 블록들의 w₁Z₁ + w₃Z₃</span>
+    (schedule, loads, fixed_score13) = build_reconstruct_base(base_schedule, removed_ids);
+
+    <span class="c">// ③ 뺀 블록 + 새 블록을 한 줄로 세운다</span>
+    order = removed_ids ++ added_block_ids;
+    sort_default_reconstruct_order(&amp;mut order, …);
+
+    <span class="c">// ④ 순서대로 하나씩 탐욕 삽입</span>
+    for block_id in order {
+        if best가 있고 fixed_score13 >= best.objective { continue 'trial; }    <span class="c">// 가지치기</span>
+        scheduled = insert_greedy(original_by_id[block_id], release_time, INF, &amp;schedule, …)
+                        else { continue 'trial; };                               <span class="c">// 삽입 실패</span>
+        loads[scheduled.bay_id] += workload;
+        fixed_score13 += score13_block(scheduled);
+        schedule.push(scheduled);
+    }
+
+    <span class="c">// ⑤ 전체 점수(w₂ 항 포함)를 매겨 지금까지의 최선과 비교</span>
+    candidate = make_optimize_state(schedule, w2);
+    if best가 없거나 candidate.objective &lt; best.objective { best = candidate; }
+    if best.objective &lt;= EPS { break; }                                          <span class="c">// 0점이면 더 볼 것이 없다</span>
+}
+return best</pre>
+    <p class="src">Rust 읽는 법: <code>'trial:</code>은 반복문에 붙인 이름입니다. 안쪽 <code>for</code> 안에서 <code>continue 'trial</code>을 만나면 안쪽 반복을 버리고 바깥 <code>loop</code>의 다음 회, 즉 다음 시도로 바로 넘어갑니다. <code>++</code>는 두 목록을 이어 붙인다는 뜻으로 제가 쓴 표기입니다.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 392" role="img" aria-label="확장의 한 시도를 세 단계로 그린 개념도. 첫 단계에서 기존 일정의 블록 셋을 고르고, 둘째 단계에서 그 셋을 빼고 새 블록 넷과 섞어 한 줄로 세우고, 셋째 단계에서 순서대로 다시 넣어 모든 블록이 놓인 일정을 만든다.">
+        <text x="30" y="18" font-size="11" class="t-muted">↑ 베이 안의 위치</text>
+        <text x="450" y="18" font-size="11" class="t-muted" text-anchor="end">시간 →</text>
+
+        <g stroke-width="1.2">
+          <rect x="30" y="28" width="90" height="20" class="f-bay"/><rect x="124" y="28" width="104" height="20" class="f-bay"/><rect x="232" y="28" width="84" height="20" class="f-crane"/>
+          <rect x="30" y="52" width="128" height="20" class="f-bay"/><rect x="162" y="52" width="94" height="20" class="f-crane"/><rect x="260" y="52" width="92" height="20" class="f-bay"/>
+          <rect x="50" y="76" width="88" height="20" class="f-bay"/><rect x="142" y="76" width="96" height="20" class="f-bay"/><rect x="242" y="76" width="80" height="20" class="f-crane"/>
+        </g>
+        <g font-size="10" fill="currentColor" text-anchor="middle"><text x="274" y="42">A</text><text x="209" y="66">B</text><text x="282" y="90">C</text></g>
+        <text x="470" y="40" font-size="12.5" font-weight="700" fill="currentColor">① 기존 블록 몇 개를 고른다</text>
+        <g font-size="11.5" class="t-muted"><text x="470" y="58">7~13개 (그림에서는 3개)</text><text x="470" y="74">가까이 있는 블록들이 함께 뽑힌다</text><text x="470" y="90">고르는 방법은 7장</text></g>
+        <line x1="20" y1="114" x2="700" y2="114" class="s-muted" stroke-width=".5"/>
+
+        <g stroke-width="1.2">
+          <rect x="30" y="132" width="90" height="20" class="f-bay"/><rect x="124" y="132" width="104" height="20" class="f-bay"/><rect x="232" y="132" width="84" height="20" class="s-crane" stroke-dasharray="4 3"/>
+          <rect x="30" y="156" width="128" height="20" class="f-bay"/><rect x="162" y="156" width="94" height="20" class="s-crane" stroke-dasharray="4 3"/><rect x="260" y="156" width="92" height="20" class="f-bay"/>
+          <rect x="50" y="180" width="88" height="20" class="f-bay"/><rect x="142" y="180" width="96" height="20" class="f-bay"/><rect x="242" y="180" width="80" height="20" class="s-crane" stroke-dasharray="4 3"/>
+        </g>
+        <text x="30" y="228" font-size="11" fill="currentColor">넣을 순서 →</text>
+        <g stroke-width="1.2">
+          <rect x="110" y="214" width="44" height="20" class="f-steel"/><rect x="158" y="214" width="44" height="20" class="f-crane"/><rect x="206" y="214" width="44" height="20" class="f-steel"/>
+          <rect x="254" y="214" width="44" height="20" class="f-crane"/><rect x="302" y="214" width="44" height="20" class="f-steel"/><rect x="350" y="214" width="44" height="20" class="f-crane"/>
+          <rect x="398" y="214" width="44" height="20" class="f-steel"/>
+        </g>
+        <g font-size="10" fill="currentColor" text-anchor="middle">
+          <text x="132" y="228">새1</text><text x="180" y="228">A</text><text x="228" y="228">새2</text><text x="276" y="228">B</text><text x="324" y="228">새3</text><text x="372" y="228">C</text><text x="420" y="228">새4</text>
+        </g>
+        <text x="470" y="144" font-size="12.5" font-weight="700" fill="currentColor">② 뺀 블록 + 새 블록을 줄 세운다</text>
+        <g font-size="11.5" class="t-muted"><text x="470" y="162">새 블록은 18~20개 (그림에서는 4개)</text><text x="470" y="178">순서의 기준은 시도마다 달라진다</text><text x="470" y="194">남은 블록의 점수 합을 구해 둔다</text></g>
+        <line x1="20" y1="250" x2="700" y2="250" class="s-muted" stroke-width=".5"/>
+
+        <g stroke-width="1.2">
+          <rect x="30" y="268" width="90" height="20" class="f-bay"/><rect x="124" y="268" width="104" height="20" class="f-bay"/><rect x="232" y="268" width="70" height="20" class="f-steel"/><rect x="306" y="268" width="80" height="20" class="f-crane"/><rect x="390" y="268" width="60" height="20" class="f-steel"/>
+          <rect x="30" y="292" width="128" height="20" class="f-bay"/><rect x="162" y="292" width="84" height="20" class="f-crane"/><rect x="260" y="292" width="92" height="20" class="f-bay"/><rect x="356" y="292" width="72" height="20" class="f-steel"/>
+          <rect x="50" y="316" width="88" height="20" class="f-bay"/><rect x="142" y="316" width="96" height="20" class="f-bay"/><rect x="242" y="316" width="94" height="20" class="f-crane"/><rect x="340" y="316" width="66" height="20" class="f-steel"/>
+        </g>
+        <g font-size="10" fill="currentColor" text-anchor="middle">
+          <text x="267" y="282">새1</text><text x="346" y="282">C</text><text x="420" y="282">새2</text>
+          <text x="204" y="306">A</text><text x="392" y="306">새3</text>
+          <text x="289" y="330">B</text><text x="373" y="330">새4</text>
+        </g>
+        <text x="470" y="280" font-size="12.5" font-weight="700" fill="currentColor">③ 순서대로 하나씩 탐욕 삽입</text>
+        <g font-size="11.5" class="t-muted"><text x="470" y="298">가장 덜 늦는 자리에 놓는다 (5장)</text><text x="470" y="314">점수 합이 지금까지의 최선 이상이면</text><text x="470" y="330">이 시도를 버린다</text></g>
+
+        <g stroke-width="1.2"><rect x="30" y="362" width="12" height="12" class="f-bay"/><rect x="150" y="362" width="12" height="12" class="f-crane"/><rect x="320" y="362" width="12" height="12" class="f-steel"/></g>
+        <g font-size="11" fill="currentColor"><text x="48" y="373">그대로 둔 블록</text><text x="168" y="373">뺐다가 다시 넣은 블록</text><text x="338" y="373">새 블록</text></g>
+      </svg>
+      </div>
+      <figcaption>시도 한 번의 개념도입니다. 위치를 한 축으로 줄였고 블록 수도 줄였습니다(실제 배치를 계산한 것이 아닙니다). 기존 블록 A·B·C가 빠지면서 생긴 자리에 새 블록이 들어갈 수 있고, A·B·C도 원래 자리가 아닌 곳으로 갈 수 있습니다. 새 블록만 맨 뒤에 붙이는 것보다 넓은 범위를 다시 짜는 셈입니다.</figcaption>
+    </figure>
+
+    <h3>단계별로 정확히</h3>
+    <ol class="plain">
+      <li><strong>뺄 블록 고르기.</strong> <code>sample_removed_count</code>가 7~13 사이의 수를 뽑습니다(<code>remove_count</code>의 <span class="mono">range: [7, 13], power: 2.0</span>. 작은 수가 더 자주 나오고, 분포 식으로 계산한 평균은 약 8.9입니다). 기존 블록이 그보다 적으면 있는 만큼만입니다. 어느 블록을 뺄지는 <code>choose_removed_blocks</code>가 정하고, 큰 재구성 이웃과 같은 함수입니다(7장).</li>
+      <li><strong>남은 블록으로 바탕 만들기.</strong> <code>build_reconstruct_base</code>는 세 가지를 돌려줍니다. 뺀 블록을 제외한 일정, 베이별 작업량 합(<code>loads</code>, Z₂ 계산용), 남은 블록들의 w₁·지연 + w₃·선호 벌점 합입니다. 마지막 값이 코드의 <code>fixed_score13</code>이고, Z₁과 Z₃의 가중합이라 이름에 13이 붙습니다.</li>
+      <li><strong>줄 세우기.</strong> 뺀 블록과 새 블록을 한 목록으로 합쳐 <code>sort_default_reconstruct_order</code>로 정렬합니다. 3장에서 본 그 함수입니다. 부피, 한계 시각의 급함, 여유의 빡빡함, 선호 차이, 난수를 가중합한 점수가 큰 순서이고, 가중치를 시도마다 새로 뽑습니다. 그래서 같은 블록들이라도 시도마다 넣는 순서가 다릅니다.</li>
+      <li><strong>하나씩 삽입.</strong> 블록마다 <code>insert_greedy</code>를 부릅니다. 입고 시각의 범위는 그 블록의 release부터 <code>INF</code>(2<sup>40</sup>)까지, 즉 상한이 없습니다. 삽입이 고른 자리를 일정에 추가하고 <code>loads</code>와 <code>fixed_score13</code>을 갱신합니다.</li>
+      <li><strong>채점과 비교.</strong> 모두 넣었으면 <code>make_optimize_state</code>로 전체 점수를 매깁니다. 여기서 w₂·Z₂ 항이 더해집니다. 지금까지의 최선보다 작으면 교체합니다.</li>
+    </ol>
+    <div class="note">
+      <p><strong>시도는 매번 같은 해에서 출발합니다.</strong></p>
+      <p>①과 ②는 항상 이 워커가 들고 온 해(<code>base_schedule</code>)를 대상으로 합니다. 앞 시도의 결과를 이어받아 고쳐 나가는 것이 아니라, 같은 출발점에서 서로 다른 무작위 선택으로 여러 번 만들어 보고 가장 좋은 하나를 고르는 방식입니다. 고쳐 나가는 일은 그 뒤의 SA가 맡습니다.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>확장 ③: 가지치기, 실패, 종료</h2>
+    <h3>진행 중인 점수가 최선을 넘으면 그 시도를 버린다</h3>
+    <p>블록을 하나 넣기 직전마다 <code>fixed_score13 >= best.objective - EPS</code>를 검사합니다. 참이면 남은 블록을 넣어 보지 않고 다음 시도로 넘어갑니다. 이 판단은 손해가 없습니다. 블록을 더 넣으면 지연 항과 선호 항은 늘거나 그대로이고, 마지막에 더해질 w₂·Z₂ 항도 0 이상이므로, 이 시도의 최종 점수는 지금의 <code>fixed_score13</code>보다 작아질 수 없기 때문입니다.</p>
+    <p>숫자로 보면 이렇습니다(설명을 위해 지어낸 값입니다). w₁ = 1,000이고 지금까지의 최선이 42,000점입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>시점</th><th>방금 넣은 블록의 벌점</th><th>fixed_score13</th><th>판단</th></tr></thead>
+      <tbody>
+        <tr><td>블록을 빼고 난 직후</td><td></td><td>30,000</td><td>계속</td></tr>
+        <tr><td>1번째 블록 삽입 후</td><td>0 (제때)</td><td>30,000</td><td>계속</td></tr>
+        <tr><td>2번째 블록 삽입 후</td><td>3,000 (3일 지연)</td><td>33,000</td><td>계속</td></tr>
+        <tr><td>3번째 블록 삽입 후</td><td>2,000</td><td>35,000</td><td>계속</td></tr>
+        <tr><td>4번째 블록 삽입 후</td><td>8,000</td><td>43,000</td><td>42,000 이상 → 이 시도를 버림</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>넣을 블록이 30개 남짓인데 4개만 넣고 끝났습니다. 좋은 해가 일찍 나올수록 나쁜 시도가 빨리 끊기고, 같은 시간에 더 많은 시도를 할 수 있습니다.</p>
+
+    <h3>시도가 버려지는 세 가지 경우</h3>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>경우</th><th>코드</th><th>설명</th></tr></thead>
+      <tbody>
+        <tr><td>가지치기</td><td class="mono">optimize.rs:352</td><td>위에서 본 것. 가장 흔할 것으로 보이는 경우입니다.</td></tr>
+        <tr><td>삽입 실패</td><td class="mono">optimize.rs:374</td><td><code>insert_greedy</code>가 자리를 못 찾았을 때. 확장에서는 입고 시각에 상한이 없어서, 그 블록이 들어갈 수 있는 베이와 방향이 하나라도 있으면 "다른 블록이 모두 나간 뒤"라는 자리가 항상 남습니다. 코드를 읽은 바로는 정상적인 입력에서 이 분기를 탈 일이 없습니다.</td></tr>
+        <tr><td>뺄 블록 선택 실패</td><td class="mono">optimize.rs:328</td><td><code>choose_removed_blocks</code>가 아무것도 돌려주지 않았을 때.</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h3>언제 끝나나</h3>
+    <ul class="plain">
+      <li><strong>시간.</strong> 시도를 시작하기 전에만 시계를 봅니다. 완성된 해가 하나 이상 있고 확장 마감이 지났으면 끝냅니다. "완성된 해가 하나 이상"이라는 조건 때문에, 주어진 시간이 0이어도 첫 시도는 끝까지 갑니다. 새 블록이 빠진 채로 SA에 넘어가는 일은 없습니다.</li>
+      <li><strong>점수 0.</strong> 최선의 점수가 0(<code>EPS</code> = 10<sup>−9</sup> 이하)이면 바로 끝냅니다. 지연도 선호 벌점도 없는 해라 더 좋아질 수 없습니다.</li>
+    </ul>
+
+    <h3>첫 호라이즌에서는</h3>
+    <p>첫 호라이즌에서는 워커가 들고 온 해가 빈 일정입니다(<code>make_optimize_state(problem, pre, Vec::new(), 0.0)</code>, 점수 0). 뺄 블록이 없으므로 ①을 건너뛰고, 새 블록 18~20개만 무작위 가중 순서로 줄 세워 빈 베이에 하나씩 넣습니다. 즉 첫 호라이즌의 확장은 "순서를 바꿔 가며 처음부터 여러 번 쌓아 보고 가장 좋은 것을 고르는" 일입니다.</p>
+  </section>
+
+  <section>
+    <h2>확장 ④: 워커마다 따로, 서로 다르게</h2>
+    <p>확장은 워커 4개가 각자 자기 해에 대해 동시에 수행합니다. 워커는 독립적으로 탐색하는 스레드 하나이고(2장), 워커 수는 <code>runtime.worker_count</code> = 4입니다.</p>
+    <div class="note">
+      <p><strong>배경: 난수 시드와 병렬 워커</strong></p>
+      <p>프로그램의 난수는 <strong>시드</strong>라는 출발값에서 계산으로 만들어 내는 수열입니다. 시드가 같으면 수열도 같습니다. 그래서 워커 네 개가 같은 시드를 쓰면 넷이 똑같은 선택을 하게 되어 병렬로 돌리는 의미가 없습니다. 워커마다 시드를 다르게 주는 것이 "같은 알고리즘으로 서로 다른 탐색을 시키는" 가장 간단한 방법입니다.</p>
+      <p>이런 방식의 병렬화를 다중 출발(multi-start)이라고 하고, 코어 수만큼 탐색량이 늘어납니다. 이 해법은 여기에 두 가지를 더합니다. 시드뿐 아니라 앵커까지 워커마다 달리해서 구조가 다른 해가 나오게 하고, SA 동안 가장 좋은 해를 공유해서 크게 뒤처진 워커가 따라오게 합니다(7장).</p>
+    </div>
+<pre><span class="c">// src/solver/optimize.rs:453</span>
+let expand_duration = ((horizon_deadline - now) * phase_params.expand_time_ratio)   <span class="c">// 이번 몫의 5%</span>
+    .min(phase_params.max_expand_seconds);                                           <span class="c">// 최대 5초</span>
+let horizon_seed = seed.wrapping_add(((horizon_index + 1) as u64) &lt;&lt; 32);
+worker_states = worker_states
+    .into_par_iter()                                                                 <span class="c">// 워커 수만큼 병렬</span>
+    .enumerate()
+    .map(|(worker_id, state)| {
+        let mut rng = RandPcg64Mcg::new(horizon_seed.wrapping_add(worker_id as u64));
+        let primary_anchor = insert_params.worker_primary_anchor(worker_id);
+        extend_schedule(…, state, &amp;order[horizon.clone()], …, primary_anchor, …, w2, timer,
+                        now + expand_duration, &amp;mut rng)
+    })
+    .collect();</pre>
+    <p>네 워커가 받는 새 블록은 같습니다. 다른 것은 셋입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>워커마다 다른 것</th><th>값</th><th>효과</th></tr></thead>
+      <tbody>
+        <tr><td>출발하는 해</td><td>그 워커가 앞 호라이즌에서 얻은 해</td><td>워커별로 다른 배치 구조가 이어집니다.</td></tr>
+        <tr><td>난수 시드</td><td><span class="mono">solver_seed + (호라이즌 번호 &lt;&lt; 32) + 워커 번호</span></td><td>뺄 블록, 넣는 순서, 삽입의 무작위 선택이 달라집니다.</td></tr>
+        <tr><td>기본 앵커</td><td>워커 0: 왼쪽 아래, 1: 오른쪽 아래, 2: 왼쪽 위, 3: 오른쪽 위</td><td>같은 점수의 자리가 여럿일 때 어느 구석 쪽을 고를지가 달라집니다(5장).</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>앵커는 삽입할 때마다 다시 뽑습니다. 80%는 그 워커의 기본 앵커이고, 20%(<code>anchor_randomness</code> = 0.2)는 나머지 셋 중 하나입니다.</p>
+    <p class="src">워커 번호에서 앵커를 정하는 코드는 <span class="mono">src/params.rs:83</span>, 앵커를 뽑는 코드는 <span class="mono">src/solver/insert.rs:40</span>입니다. 스레드 풀은 <span class="mono">src/main.rs:40</span>에서 <code>worker_count</code>개로 만듭니다.</p>
+
+    <h3>큰 재구성 이웃과 무엇이 다른가</h3>
+    <p>확장의 시도는 7장에서 다룰 큰 재구성 이웃(<code>try_large_reconstruct</code>)과 같은 부품을 씁니다. 발표 자료도 확장을 "큰 재구성 이웃과 비슷한 절차"라고 소개합니다. 코드에서 보이는 차이만 정리합니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th></th><th>확장의 시도</th><th>큰 재구성 이웃</th></tr></thead>
+      <tbody>
+        <tr><td>다시 넣는 블록</td><td>뺀 블록 + 새 블록</td><td>뺀 블록만</td></tr>
+        <tr><td>출발점</td><td>매번 같은 해(들고 온 해)</td><td>SA의 현재 해</td></tr>
+        <tr><td>입고 시각 상한</td><td>없음</td><td>SA의 수락 임계값(3장)에서 거꾸로 계산한 상한</td></tr>
+        <tr><td>중간에 버리는 기준</td><td>지금까지의 최선 점수</td><td>SA의 수락 임계값</td></tr>
+        <tr><td>넣는 순서의 점수</td><td>현재 벌점 항 없음</td><td>현재 벌점 항 있음</td></tr>
+        <tr><td>결과 처리</td><td>가장 좋은 하나만 남김</td><td>SA가 수락할지 정함</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>확장 뒤: SA를 부르고, 결과를 다음 호라이즌으로 넘긴다</h2>
+<pre><span class="c">// src/solver/optimize.rs:478  (요약)</span>
+best_state = worker_states 중 objective가 가장 작은 것;
+if is_last { candidate_emitter.emit(&amp;best_state, timer, true); }        <span class="c">// 4부</span>
+if best_state.objective &lt;= EPS { continue; }                             <span class="c">// 이미 0점: SA 생략</span>
+if timer.elapsed_seconds() >= horizon_deadline { continue; }             <span class="c">// 시간이 없음: SA 생략</span>
+let result = annealer.run(worker_states, horizon_deadline, …, w2,
+                          is_last.then_some(candidate_emitter), horizon_seed, …);
+best_state = result.best;                 <span class="c">// 공유 최선</span>
+worker_states = result.worker_bests;      <span class="c">// 워커별 개인 최선 → 다음 호라이즌의 출발점</span></pre>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 288" role="img" aria-label="호라이즌 하나에서 워커 네 개의 해가 흐르는 모습. 워커마다 들어오는 해가 확장을 거쳐 SA로 가고, SA 동안 네 워커가 공유 최선 하나를 함께 갱신한다. SA가 끝나면 워커별 개인 최선이 다음 호라이즌에서 같은 워커의 출발점이 된다.">
+        <defs>
+          <marker id="ah6a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker>
+        </defs>
+        <g font-size="12" class="t-muted" text-anchor="middle">
+          <text x="75" y="20">들어오는 해</text><text x="235" y="20">확장</text><text x="425" y="20">병렬 SA</text><text x="630" y="20">공유 최선</text>
+        </g>
+        <g stroke-width="1.2">
+          <rect x="20" y="34" width="110" height="36" class="f-bay"/><rect x="160" y="34" width="150" height="36" class="f-crane"/><rect x="340" y="34" width="170" height="36" class="f-steel"/>
+          <rect x="20" y="84" width="110" height="36" class="f-bay"/><rect x="160" y="84" width="150" height="36" class="f-crane"/><rect x="340" y="84" width="170" height="36" class="f-steel"/>
+          <rect x="20" y="134" width="110" height="36" class="f-bay"/><rect x="160" y="134" width="150" height="36" class="f-crane"/><rect x="340" y="134" width="170" height="36" class="f-steel"/>
+          <rect x="20" y="184" width="110" height="36" class="f-bay"/><rect x="160" y="184" width="150" height="36" class="f-crane"/><rect x="340" y="184" width="170" height="36" class="f-steel"/>
+          <rect x="560" y="34" width="140" height="186" class="f-hull"/>
+        </g>
+        <g font-size="12" fill="currentColor" text-anchor="middle">
+          <text x="75" y="56">워커 0의 해</text><text x="75" y="106">워커 1의 해</text><text x="75" y="156">워커 2의 해</text><text x="75" y="206">워커 3의 해</text>
+          <text x="235" y="50">시드 +0</text><text x="235" y="100">시드 +1</text><text x="235" y="150">시드 +2</text><text x="235" y="200">시드 +3</text>
+          <text x="425" y="50">워커 0의 현재 해</text><text x="425" y="100">워커 1의 현재 해</text><text x="425" y="150">워커 2의 현재 해</text><text x="425" y="200">워커 3의 현재 해</text>
+          <text x="630" y="112" font-weight="700">가장 좋은 해 하나</text>
+        </g>
+        <g font-size="10.5" class="t-muted" text-anchor="middle">
+          <text x="235" y="64">앵커: 왼쪽 아래</text><text x="235" y="114">앵커: 오른쪽 아래</text><text x="235" y="164">앵커: 왼쪽 위</text><text x="235" y="214">앵커: 오른쪽 위</text>
+          <text x="425" y="64">+ 개인 최선</text><text x="425" y="114">+ 개인 최선</text><text x="425" y="164">+ 개인 최선</text><text x="425" y="214">+ 개인 최선</text>
+          <text x="630" y="132">더 좋은 해를 찾으면 올리고</text><text x="630" y="147">주기적으로 내려받는다</text><text x="630" y="162">(7장)</text>
+        </g>
+        <g class="s-line" stroke-width="1.5">
+          <line x1="130" y1="52" x2="158" y2="52" marker-end="url(#ah6a)"/><line x1="310" y1="52" x2="338" y2="52" marker-end="url(#ah6a)"/>
+          <line x1="130" y1="102" x2="158" y2="102" marker-end="url(#ah6a)"/><line x1="310" y1="102" x2="338" y2="102" marker-end="url(#ah6a)"/>
+          <line x1="130" y1="152" x2="158" y2="152" marker-end="url(#ah6a)"/><line x1="310" y1="152" x2="338" y2="152" marker-end="url(#ah6a)"/>
+          <line x1="130" y1="202" x2="158" y2="202" marker-end="url(#ah6a)"/><line x1="310" y1="202" x2="338" y2="202" marker-end="url(#ah6a)"/>
+        </g>
+        <g class="s-muted" stroke-width="1.5">
+          <line x1="514" y1="52" x2="556" y2="52" marker-start="url(#ah6a)" marker-end="url(#ah6a)"/>
+          <line x1="514" y1="102" x2="556" y2="102" marker-start="url(#ah6a)" marker-end="url(#ah6a)"/>
+          <line x1="514" y1="152" x2="556" y2="152" marker-start="url(#ah6a)" marker-end="url(#ah6a)"/>
+          <line x1="514" y1="202" x2="556" y2="202" marker-start="url(#ah6a)" marker-end="url(#ah6a)"/>
+        </g>
+        <path d="M425,222 v22 h-350 v-20" class="s-ok" stroke-width="1.5" marker-end="url(#ah6a)"/>
+        <text x="250" y="262" font-size="12" class="t-ok" text-anchor="middle">SA가 끝나면: 워커 r의 개인 최선 → 다음 호라이즌에서 워커 r의 들어오는 해</text>
+        <line x1="630" y1="222" x2="630" y2="246" class="s-line" stroke-width="1.5" marker-end="url(#ah6a)"/>
+        <text x="630" y="262" font-size="12" fill="currentColor" text-anchor="middle">best_state</text>
+        <text x="630" y="278" font-size="10.5" class="t-muted" text-anchor="middle">마지막 호라이즌 뒤에 반환</text>
+      </svg>
+      </div>
+      <figcaption>호라이즌 하나 안에서 해가 흐르는 길입니다. 가로줄 하나가 워커 하나입니다. 워커끼리 해를 주고받는 통로는 SA 동안의 공유 최선뿐이고, 호라이즌 사이에서는 각자 자기 해를 들고 갑니다.</figcaption>
+    </figure>
+
+    <h3>SA에 넘어가는 것</h3>
+    <ul class="plain">
+      <li><strong>워커별 해 4개.</strong> 방금 확장한 결과입니다. 워커 r은 r번째 해에서 출발합니다.</li>
+      <li><strong>이번 호라이즌의 마감.</strong> SA는 이 시각까지 돕니다.</li>
+      <li><strong>이번 호라이즌의 w₂</strong>(3부)와 시드, 그리고 마지막 호라이즌일 때만 후보 해 출력기(4부).</li>
+    </ul>
+    <p>SA 안에서 온도는 호라이즌마다 처음부터 다시 시작합니다. 시작 온도와 끝 온도는 "네 해 중 가장 좋은 점수 ÷ 들어온 블록 수"에 각각 0.2와 0.02를 곱한 값이고, SA를 부른 시각부터 이번 마감까지 지수적으로 내려갑니다. 새 블록이 들어올 때마다 다시 높은 온도에서 출발하므로, 앞에서 굳어 가던 배치도 새 블록에 맞춰 다시 움직일 여지가 생깁니다. SA의 기본 동작(온도, 수락 확률)은 3장에서 봤고, 2단계에서의 세부는 7장에서 다룹니다.</p>
+
+    <h3>SA에서 돌아오는 것</h3>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>반환값</th><th>내용</th><th><code>optimize()</code>에서의 쓰임</th></tr></thead>
+      <tbody>
+        <tr><td><code>result.best</code></td><td>공유 최선. 네 워커가 이번 SA 동안 찾은 해 중 가장 좋은 것(출발 해 포함)</td><td><code>best_state</code>가 됩니다. 로그, 점수 0 판정, 마지막 호라이즌의 출력과 반환에 쓰입니다. 다음 호라이즌의 출발점으로는 쓰이지 않습니다.</td></tr>
+        <tr><td><code>result.worker_bests</code></td><td>워커별 개인 최선 4개</td><td>다음 호라이즌의 <code>worker_states</code>, 즉 각 워커의 출발 해가 됩니다.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p><strong>개인 최선</strong>은 그 워커가 이번 SA 동안 직접 만들어 수락한 해 중 가장 좋은 것이고, 처음에는 출발 해입니다. SA 도중 공유 최선을 내려받아 현재 해를 바꾸더라도, 내려받은 해 자체가 개인 최선이 되지는 않습니다. 거기서 출발해 자기 개인 최선보다 좋은 해를 만들었을 때만 바뀝니다. SA가 끝날 때의 "현재 해"가 아니라 개인 최선을 넘긴다는 점도 눈여겨볼 만합니다. 온도가 남아 있어 현재 해가 조금 나빠진 채로 끝나도 그 손해가 다음 호라이즌으로 넘어가지 않습니다.</p>
+
+    <h3>SA를 건너뛰는 두 경우</h3>
+    <ul class="plain">
+      <li><strong>확장 결과의 최선이 이미 0점.</strong> 고칠 것이 없습니다. 자리가 넉넉한 문제의 앞쪽 호라이즌에서 생길 수 있습니다.</li>
+      <li><strong>확장이 끝났을 때 이미 이번 마감이 지남.</strong> 전체 마감을 넘긴 뒤의 호라이즌들이 여기에 해당합니다. 확장만 한 번씩 하고 지나가므로, 시간이 모자라도 모든 블록이 들어간 해는 만들어집니다.</li>
+    </ul>
+    <p>두 경우 모두 <code>worker_states</code>는 확장 결과 그대로 다음 호라이즌으로 넘어갑니다.</p>
+    <p class="src">개인 최선과 공유 최선의 갱신은 <span class="mono">src/solver/annealing.rs:483</span>과 <span class="mono">:495</span>, 반환값 조립은 <span class="mono">:344</span>, 온도 일정은 <span class="mono">:76</span>과 <span class="mono">src/params.rs:147</span>에서 확인했습니다.</p>
+  </section>
+
+  <section>
+    <h2>왜 워커마다 해를 따로 들고 가나</h2>
+    <p>호라이즌이 끝날 때 가장 좋은 해 하나를 골라 네 워커에게 복사해 줄 수도 있었을 것입니다. 이 해법은 그렇게 하지 않고, 처음부터 끝까지 네 개의 해를 나란히 키웁니다.</p>
+    <ul class="plain">
+      <li><strong>구조가 다른 해 네 개가 유지됩니다.</strong> 2장에서 본 대로 빽빽한 일정은 앞쪽부터 굳습니다. 지금 점수가 가장 좋은 해의 앞쪽 구조가 나중에 들어올 블록들에게도 좋다는 보장은 없습니다. 기본 앵커와 시드가 다른 네 워커는 서로 다른 구석부터 채운 네 가지 구조를 끝까지 끌고 갑니다.</li>
+      <li><strong>그래도 크게 뒤처진 워커는 따라잡습니다.</strong> SA 동안 공유 최선보다 일정 기준 이상 나쁜 워커는 공유 최선을 내려받습니다. 그 기준과 주기는 7장에서 다룹니다.</li>
+    </ul>
+    <p class="src">보고서는 이를 "각 워커는 호라이즌을 넘어 자기 상태를 유지하고, 공유 최선을 갱신하며, 충분히 좋은 공유 해를 주기적으로 가져온다"고 적습니다. 워커 수를 1로 하거나 해를 하나로 합쳤을 때와의 비교 수치는 보고서에 없습니다.</p>
+  </section>
+
+  <!-- ================= 3부 ================= -->
+  <div class="part">3부 · w₂는 마지막 호라이즌에서만 켠다</div>
+
+  <section>
+    <h2>호라이즌별 w₂를 정하는 함수</h2>
+<pre><span class="c">// src/solver/optimize.rs:257</span>
+fn horizon_w2(w2: f64, progress: f64, is_last: bool, power: Option&lt;f64>) -> f64 {
+    match power {
+        Some(power) => w2 * progress.powf(power),       <span class="c">// 점진 도입: 진행률^power 만큼만</span>
+        None => if is_last { w2 } else { 0.0 },         <span class="c">// 기본: 마지막 호라이즌에서만</span>
+    }
+}</pre>
+    <p><code>progress</code>는 누적 블록 수 ÷ 전체 블록 수이고, <code>power</code>는 파라미터 <code>horizon_w2_power</code>입니다. 이 파라미터는 <span class="mono">src/params.rs:57</span>에 선택 항목(<code>Option&lt;f64></code>)으로 정의되어 있지만 <span class="mono">params/default.yaml</span>에는 적혀 있지 않습니다. 그래서 값이 없는 상태(<code>None</code>)가 되고, 기본 동작은 2장에서 본 "마지막 호라이즌에서만 w₂"입니다.</p>
+    <p><span class="mono">prelim_prob_6</span>(블록 250개, w₂ = 8)에서 두 방식이 호라이즌별로 주는 w₂를 계산하면 이렇습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>방식</th><th>호라이즌 1</th><th>4</th><th>7</th><th>10</th><th>12</th><th>13 (마지막)</th></tr></thead>
+      <tbody>
+        <tr><td><strong>기본 (값 없음)</strong></td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>8</td></tr>
+        <tr><td>점진 도입, power = 1</td><td>0.61</td><td>2.43</td><td>4.29</td><td>6.14</td><td>7.36</td><td>8</td></tr>
+        <tr><td>점진 도입, power = 2</td><td>0.05</td><td>0.74</td><td>2.30</td><td>4.72</td><td>6.77</td><td>8</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>점진 도입은 "마지막에 갑자기 켜면 그동안 쌓인 불균형을 한 호라이즌 안에 고쳐야 하니, 미리 조금씩 반영하자"는 생각으로 읽힙니다. 보고서는 이 방식(gradual introduction of w₂)을 <strong>시도했다가 버린 것</strong>의 목록에 넣었고, 그런 변형들이 "부담만 늘리거나 문제 전반에 걸친 일관된 개선이 없었다"고 적습니다. 코드에는 선택지로 남아 있을 뿐 제출 설정에서는 꺼져 있습니다.</p>
+  </section>
+
+  <section>
+    <h2>w₂가 바뀌는 순간에 일어나는 일</h2>
+    <ul class="plain">
+      <li><strong>w₂는 호라이즌의 맨 처음에 정해집니다.</strong> 그래서 마지막 호라이즌은 확장부터 공식 w₂를 씁니다. 새 블록을 넣을 때 베이별 Z₂ 증가분이 자리 비교에 들어가고, 시도의 최종 점수에도 w₂·Z₂가 더해집니다.</li>
+      <li><strong>앞 호라이즌의 점수는 버립니다.</strong> 워커가 들고 온 해에는 w₂ = 0으로 매긴 점수가 붙어 있지만, 확장은 그 해에서 일정만 꺼내 쓰고(<code>state.schedule</code>) 점수는 새 w₂로 다시 계산합니다. 기준이 다른 점수끼리 비교되는 일이 없습니다.</li>
+      <li><strong>w₂ = 0인 동안에는 Z₂를 계산하지도 않습니다.</strong> 삽입 함수는 w₂가 0이면 Z₂ 계산을 통째로 건너뜁니다(<span class="mono">src/solver/insert.rs:103</span>).</li>
+    </ul>
+    <p><code>optimize()</code>의 마지막 줄은 최종 해를 문제의 원래 w₂로 다시 채점합니다.</p>
+<pre><span class="c">// src/solver/optimize.rs:517</span>
+make_optimize_state(problem, pre, best_state.schedule, problem.weights.w2)</pre>
+    <p>두 방식 모두 마지막 호라이즌의 w₂는 원래 값과 같으므로(진행률이 1), 이 줄에서 점수가 달라지지는 않습니다. 반환하는 점수가 공식 목적 함수 값임을 호라이즌 설정과 무관하게 보장하는 줄입니다.</p>
+  </section>
+
+  <!-- ================= 4부 ================= -->
+  <div class="part">4부 · 해가 솔버 밖으로 나가기까지</div>
+
+  <section>
+    <h2>솔버의 출력은 표준 출력의 JSON 한 줄</h2>
+    <p>솔버가 밖으로 내보내는 것은 후보 해뿐이고, 후보 하나가 한 줄입니다. 모양은 이렇습니다(값은 형식을 보여 주는 예시이고, 실제로는 줄바꿈 없이 한 줄입니다).</p>
+<pre>{"score":4321000.0,
+ "solution":{"operations":{
+   "30":[{"type":"EXIT","block_id":7,"bay_id":2},
+         {"type":"ENTRY","block_id":2,"bay_id":2,"x":41,"y":12,"orient_idx":0}],
+   "36":[{"type":"EXIT","block_id":2,"bay_id":2}], … }}}</pre>
+    <ul class="plain">
+      <li><code>score</code>는 솔버가 계산한 목적 함수 값입니다. 파이썬 쪽이 후보를 줄 세우는 데 씁니다.</li>
+      <li><code>solution</code>은 1장에서 본 대회 출력 형식 그대로입니다. 파이썬 쪽은 이것을 변환 없이 돌려줍니다.</li>
+      <li>같은 형식에 임의의 값을 넣어 길이를 재 보면 블록 100개일 때 약 12KB, 300개일 때 약 35KB입니다.</li>
+    </ul>
+    <p>진행 로그는 표준 오류로 가고, 그나마 <code>local</code> 기능을 켜고 빌드했을 때만 나옵니다(<span class="mono">src/lib.rs:12</span>). <code>solve()</code>가 돌려주는 값도 <code>main()</code>에서는 쓰이지 않습니다. 해가 밖으로 나가는 통로는 아래의 <code>emit()</code> 하나입니다.</p>
+  </section>
+
+  <section>
+    <h2>언제, 얼마나 자주 내보내나</h2>
+    <p>출력을 맡은 것은 <code>CandidateEmitter</code>입니다. 호출되는 곳은 세 군데입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>시점</th><th>코드</th><th>강제 여부</th><th>내보내는 해</th></tr></thead>
+      <tbody>
+        <tr><td>마지막 호라이즌의 확장 직후</td><td class="mono">optimize.rs:493</td><td>강제</td><td>네 워커의 확장 결과 중 최선. 모든 블록이 들어간 첫 번째 해입니다.</td></tr>
+        <tr><td>마지막 호라이즌의 SA 도중, 공유 최선이 갱신될 때</td><td class="mono">optimize.rs:131</td><td>간격 검사</td><td>갱신된 공유 최선. 직전 출력에서 정해진 간격 이상 지났을 때만 내보냅니다.</td></tr>
+        <tr><td><code>solve()</code>가 끝날 때</td><td class="mono">solver.rs:97</td><td>강제</td><td>최종 해</td></tr>
+      </tbody>
+    </table>
+    </div>
+<pre><span class="c">// src/solver/output.rs:73  configure(): 마지막 호라이즌이 시작될 때 한 번 불린다</span>
+let interval_seconds = self.min_interval_seconds                       <span class="c">// 10초</span>
+    .max(final_horizon_time / self.max_count as f64);                  <span class="c">// 마지막 호라이즌의 몫 ÷ 10</span>
+
+<span class="c">// src/solver/output.rs:87  emit()</span>
+if !force &amp;&amp; elapsed - emit_state.last_emitted &lt; emit_state.interval_seconds {
+    return;                                                            <span class="c">// 간격이 안 지났으면 건너뛴다</span>
+}
+let candidate = SolutionCandidate { score: state.objective,
+                                    solution: schedule_to_solution(&amp;state.schedule) };
+<span class="c">// JSON으로 바꿔 한 줄로 쓰고 flush 한 뒤, last_emitted를 지금으로 갱신</span></pre>
+    <p>간격은 <strong>max(10초, 마지막 호라이즌의 몫 ÷ 10)</strong>입니다. 파라미터 이름은 "최대 횟수"(<code>solution_emit_max_count</code> = 10)이지만 횟수를 세어 막지는 않고, 간격을 정하는 데만 쓰입니다. 블록 250개 기준으로 계산하면 이렇습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th></th><th>T = 60</th><th>T = 300</th><th>T = 1800</th></tr></thead>
+      <tbody>
+        <tr><td>마지막 호라이즌의 몫</td><td>10.2초</td><td>59.1초</td><td>370.2초</td></tr>
+        <tr><td>출력 간격</td><td>10초</td><td>10초</td><td>37.0초</td></tr>
+        <tr><td>SA 도중의 출력 (많아야)</td><td>0회</td><td>5회</td><td>9회</td></tr>
+        <tr><td>강제 출력</td><td>2회</td><td>2회</td><td>2회</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>T = 60에서는 마지막 호라이즌의 SA가 9.7초라 간격 10초가 한 번도 차지 않습니다. 후보는 확장 직후의 해와 최종 해 둘뿐입니다. SA 도중의 출력은 공유 최선이 갱신되는 순간에만 검사하므로, 갱신이 없으면 간격이 지나도 내보내지 않습니다.</p>
+    <p><code>emit()</code>은 잠금(Mutex)을 쥔 채로 직렬화와 출력을 마칩니다. 워커 네 개가 동시에 불러도 줄이 섞이지 않습니다.</p>
+
+    <h3>왜 마지막 호라이즌에서만 내보내나</h3>
+    <p>중간 호라이즌의 해에는 아직 투입되지 않은 블록이 들어 있지 않습니다. 대회의 유효 조건은 모든 블록이 ENTRY와 EXIT를 한 번씩 갖는 것이므로(1장), 블록이 빠진 해는 내보내 봐야 무효입니다. 코드에서는 두 가지로 막혀 있습니다. 출력기를 SA에 넘기는 곳이 <code>is_last.then_some(candidate_emitter)</code>라서 마지막 호라이즌이 아니면 SA가 출력기를 받지 못하고, 간격의 초깃값이 무한대라서 <code>configure()</code> 전에는 강제가 아닌 출력이 통과하지 못합니다.</p>
+    <div class="note">
+      <p><strong>그 결과로 생기는 성질 하나.</strong></p>
+      <p>솔버는 마지막 호라이즌의 확장이 끝날 때까지 아무것도 출력하지 않습니다. 명목 값으로 T = 300, 블록 250개라면 첫 후보는 약 239초 시점에 나옵니다. 그 전에 솔버가 죽으면 파이썬 쪽에는 후보가 하나도 없습니다.</p>
+    </div>
+    <p class="src">간격을 두는 이유는 코드에 적혀 있지 않습니다. 후보 하나가 수십 KB이고 파이썬 쪽이 전부 파싱해야 하며, 출력하는 동안 다른 워커의 출력이 잠금에서 기다린다는 점을 생각하면 출력량을 묶어 두려는 것으로 보입니다. 이것은 제 해석입니다.</p>
+  </section>
+
+  <section>
+    <h2>EXIT를 먼저 넣는다</h2>
+<pre><span class="c">// src/solver/output.rs:11  schedule_to_solution() (요약)</span>
+let mut operations: BTreeMap&lt;i64, Vec&lt;Operation>> = BTreeMap::new();   <span class="c">// 시각 → 그 시각의 작업 목록</span>
+for scheduled in schedule {                                            <span class="c">// 먼저 모든 블록의 EXIT</span>
+    operations.entry(scheduled.exit_time).or_default().push(EXIT …);
+}
+for scheduled in schedule {                                            <span class="c">// 그다음 모든 블록의 ENTRY</span>
+    operations.entry(scheduled.entry_time).or_default().push(ENTRY …);
+}</pre>
+    <p>일정을 두 번 훑습니다. 첫 번째에서 모든 블록의 EXIT를 각자의 출고 시각 목록에 넣고, 두 번째에서 ENTRY를 넣습니다. 그러면 어느 시각의 목록에서든 EXIT들이 ENTRY들보다 앞에 옵니다. 블록별로 "ENTRY, EXIT" 순서로 넣었다면 시각 30에 블록 2가 들어오고 블록 7이 나갈 때 ENTRY가 앞에 올 수 있습니다.</p>
+    <p>이 순서가 필요한 이유는 1장의 규칙입니다. 같은 시각의 작업은 EXIT를 모두 처리한 뒤 ENTRY를 처리하고, 출력에서도 EXIT가 앞에 적혀 있어야 합니다. 솔버는 "시각 30에 나가는 블록의 자리에 시각 30에 다른 블록이 들어온다"는 배치를 적극적으로 쓰므로 이 순서가 어긋나면 해가 무효가 됩니다.</p>
+    <p>같은 종류끼리의 순서(EXIT와 EXIT, ENTRY와 ENTRY)는 일정 목록에 들어 있던 순서 그대로이고 따로 맞추지 않습니다. 솔버가 같은 시각의 같은 종류 작업끼리 순서에 기대는 배치를 처음부터 만들지 않기 때문입니다(1장에서 본 "양 끝을 하루씩 안쪽으로" 잡는 처리, 5장). 보고서는 같은 시각의 작업 순서를 최적화하는 것도 시도했다가 버렸다고 적습니다.</p>
+  </section>
+
+  <section>
+    <h2>파이썬 쪽: 솔버를 실행하고, 후보를 검증해 돌려준다</h2>
+    <p>대회가 부르는 것은 파이썬 함수 <code>algorithm(prob_info, timelimit)</code>입니다(<span class="mono">tools/myalgorithm.py</span>). 제출물은 이 파일과 Rust 실행 파일 <span class="mono">solver</span>, 파라미터 파일 <span class="mono">params.yaml</span> 세 개입니다.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 326" role="img" aria-label="파이썬 래퍼와 솔버 프로세스의 시간선. 솔버는 사전계산과 사전최적화, 호라이즌 1부터 12, 마지막 호라이즌의 확장과 SA를 차례로 수행하고 295초에 끝낸다. 후보 해는 마지막 호라이즌의 확장 직후, SA 도중, 종료 직전에 파이썬으로 전달된다. 파이썬은 솔버가 끝나면 후보를 검증하고 299초 전에 반환한다.">
+        <defs>
+          <marker id="ah6c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker>
+        </defs>
+        <text x="20" y="18" font-size="12" class="t-muted">대회 제한 T = 300초 · 블록 250개의 명목 시각 (가로 축척은 맞지 않음)</text>
+
+        <text x="20" y="64" font-size="12" font-weight="700" fill="currentColor">파이썬</text>
+        <text x="20" y="79" font-size="10" class="t-muted">algorithm()</text>
+        <g stroke-width="1.2">
+          <rect x="100" y="48" width="475" height="36" class="f-bay"/><rect x="575" y="48" width="80" height="36" class="f-hull"/><rect x="655" y="48" width="40" height="36" class="f-bay"/>
+        </g>
+        <text x="240" y="70" font-size="12" fill="currentColor" text-anchor="middle">솔버를 실행하고 표준 출력을 모은다</text>
+        <text x="615" y="70" font-size="12" fill="currentColor" text-anchor="middle">후보 검증</text>
+        <text x="675" y="70" font-size="11" fill="currentColor" text-anchor="middle">여유</text>
+
+        <text x="20" y="176" font-size="12" font-weight="700" fill="currentColor">솔버</text>
+        <text x="20" y="191" font-size="10" class="t-muted">Rust 프로세스</text>
+        <g stroke-width="1.2">
+          <rect x="100" y="160" width="70" height="36" class="f-steel"/><rect x="170" y="160" width="160" height="36" class="f-hull"/>
+          <rect x="330" y="160" width="50" height="36" class="f-crane"/><rect x="380" y="160" width="180" height="36" class="f-steel"/><rect x="560" y="160" width="15" height="36" class="f-bay"/>
+        </g>
+        <g font-size="10.5" fill="currentColor" text-anchor="middle"><text x="135" y="175">사전계산</text><text x="135" y="189">사전최적화</text></g>
+        <g font-size="12" fill="currentColor" text-anchor="middle"><text x="250" y="182">호라이즌 1~12</text><text x="355" y="182">확장</text><text x="470" y="182">호라이즌 13의 SA</text></g>
+
+        <g stroke-width="1.5">
+          <line x1="380" y1="158" x2="380" y2="88" class="s-line" marker-end="url(#ah6c)"/>
+          <line x1="425" y1="158" x2="425" y2="88" class="s-muted" stroke-dasharray="4 3" marker-end="url(#ah6c)"/>
+          <line x1="470" y1="158" x2="470" y2="88" class="s-muted" stroke-dasharray="4 3" marker-end="url(#ah6c)"/>
+          <line x1="515" y1="158" x2="515" y2="88" class="s-muted" stroke-dasharray="4 3" marker-end="url(#ah6c)"/>
+          <line x1="567" y1="158" x2="567" y2="88" class="s-line" marker-end="url(#ah6c)"/>
+        </g>
+        <g font-size="11" font-weight="700" fill="currentColor"><text x="366" y="128">a</text><text x="432" y="128">b</text><text x="574" y="128">c</text></g>
+        <text x="100" y="128" font-size="11" class="t-muted">후보 해 (JSON 한 줄씩) ↑</text>
+
+        <g stroke-width="1" stroke-dasharray="3 3">
+          <line x1="560" y1="42" x2="560" y2="202" class="s-crane"/>
+          <line x1="610" y1="86" x2="610" y2="202" class="s-muted"/>
+          <line x1="655" y1="86" x2="655" y2="202" class="s-muted"/>
+          <line x1="695" y1="86" x2="695" y2="202" class="s-muted"/>
+          <line x1="610" y1="42" x2="610" y2="47" class="s-muted"/>
+        </g>
+        <g font-size="12" fill="currentColor" text-anchor="middle"><text x="560" y="38">①</text><text x="610" y="38">②</text><text x="655" y="38">③</text><text x="695" y="38">④</text></g>
+        <g font-size="10" class="t-muted" text-anchor="middle">
+          <text x="100" y="214">0초</text><text x="170" y="214">10</text><text x="330" y="214">235.9</text><text x="380" y="214">238.9</text><text x="560" y="214">295</text><text x="610" y="214">297</text><text x="655" y="214">299</text><text x="695" y="214">300</text>
+        </g>
+
+        <g font-size="11.5" fill="currentColor">
+          <text x="20" y="242">① T − 5 = 295초: 솔버 내부 마감. 마지막 SA가 끝나고 최종 해를 출력한 뒤 종료한다</text>
+          <text x="20" y="260">② T − 3 = 297초: 파이썬이 솔버에 넘긴 제한 시간</text>
+          <text x="20" y="278">③ T − 1 = 299초: 솔버가 아직 살아 있으면 강제 종료한다. 검증도 여기서 멈춘다</text>
+          <text x="20" y="296">④ T = 300초: 대회 제한 시간</text>
+        </g>
+        <text x="20" y="316" font-size="11.5" class="t-muted">a 확장 직후(강제) · b SA 도중, 공유 최선이 갱신되고 간격이 지났을 때 · c 종료 직전(강제)</text>
+      </svg>
+      </div>
+      <figcaption>솔버와 파이썬 사이를 오가는 것은 두 가지뿐입니다. 파이썬이 솔버의 표준 입력으로 문제 JSON을 한 번 보내고, 솔버가 표준 출력으로 후보 해를 여러 번 보냅니다. 시각은 앞의 표와 같은 명목 값입니다.</figcaption>
+    </figure>
+
+    <h3>시간 여유 세 겹</h3>
+<pre><span class="c"># tools/myalgorithm.py:17</span>
+VALIDATION_RESERVE_SECONDS = 2.0
+RETURN_BUFFER_SECONDS = 1.0
+
+<span class="c"># tools/myalgorithm.py:276  algorithm()</span>
+deadline = started + float(timelimit)
+solver_timelimit = max(0.1, float(timelimit) - VALIDATION_RESERVE_SECONDS - RETURN_BUFFER_SECONDS)
+…
+try:
+    output, _ = process.communicate(json.dumps(prob_info),
+        timeout=max(0.1, deadline - time.perf_counter() - RETURN_BUFFER_SECONDS))
+except subprocess.TimeoutExpired:
+    process.kill()                        <span class="c"># 시한까지 안 끝나면 죽이고</span>
+    output, _ = process.communicate()     <span class="c"># 그때까지 나온 출력을 읽는다</span></pre>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>시각</th><th>무슨 일</th><th>정하는 값</th></tr></thead>
+      <tbody>
+        <tr><td>T − 5</td><td>솔버가 스스로 탐색을 끝내는 시각</td><td><code>solve_time_buffer_seconds</code> 2.0 (솔버 쪽)</td></tr>
+        <tr><td>T − 3</td><td>솔버에 알려 준 제한 시간</td><td>검증 여유 2.0 + 반환 여유 1.0 (파이썬 쪽)</td></tr>
+        <tr><td>T − 1</td><td>솔버 강제 종료 시한이자 검증을 멈추는 시각</td><td>반환 여유 1.0</td></tr>
+        <tr><td>T</td><td>대회 제한 시간</td><td></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>정상적으로는 솔버가 T − 5 직후에 끝나므로 검증에 쓸 수 있는 시간은 T − 1까지 4초 가까이 됩니다. 솔버가 2초를 넘겨 T − 3에 끝나도 검증에 2초가 남습니다. 솔버가 멈추지 않는 최악의 경우에도 T − 1에 죽이고 1초 안에 돌려줍니다.</p>
+
+    <h3>후보를 추리고, 좋은 것부터 검증한다</h3>
+    <ol class="plain">
+      <li><strong>줄마다 읽기.</strong> 표준 출력을 줄 단위로 JSON 파싱합니다. 파싱이 안 되거나 <code>score</code>가 유한한 수가 아닌 줄은 건너뜁니다. 솔버를 강제 종료해서 마지막 줄이 중간에 끊겨도 앞의 줄들은 살아남습니다.</li>
+      <li><strong>중복 제거.</strong> 해를 키 순서를 맞춘 문자열로 바꿔 같은 해가 또 나오면 버립니다. 중복은 실제로 생깁니다. <code>solve()</code> 끝의 강제 출력은 SA 도중에 이미 내보낸 공유 최선과 같은 해일 수 있습니다.</li>
+      <li><strong>점수순 정렬.</strong> <code>score</code>가 작은 것부터 세웁니다.</li>
+      <li><strong>차례로 검증.</strong> 1등부터 <code>check_feasibility_fast</code>로 검사해서, 처음으로 통과한 후보를 돌려줍니다.</li>
+    </ol>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>상황</th><th>돌려주는 것</th></tr></thead>
+      <tbody>
+        <tr><td>후보가 하나도 없음</td><td>없음. 예외(<code>RuntimeError</code>)를 던집니다.</td></tr>
+        <tr><td>검증을 통과한 후보를 만남</td><td>그 후보. 그보다 점수가 좋은 후보는 모두 불통과였다는 뜻입니다.</td></tr>
+        <tr><td>검증 도중 T − 1에 도달</td><td>점수가 가장 좋은 후보</td></tr>
+        <tr><td>검증 중 예외 발생</td><td>점수가 가장 좋은 후보</td></tr>
+        <tr><td>모든 후보가 불통과</td><td>점수가 가장 좋은 후보</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>아래 세 줄은 통과한 후보를 찾지 못했을 때의 마지막 수단입니다. 이때 돌려주는 것은 항상 점수 1등(<code>candidates[0]</code>)입니다. 1등이 이미 불통과로 판정된 뒤에 시간이 끝난 경우에도 1등을 돌려준다는 점은 코드 그대로의 동작입니다.</p>
+
+    <h3>검증은 무엇을 보나</h3>
+    <p><code>check_feasibility_fast</code>는 1장의 규칙을 다시 구현한 것입니다. 모든 블록의 ENTRY·EXIT가 한 번씩인지, 입고가 release 이후이고 체류가 작업 기간 이상인지, 블록이 베이 안에 있는지, 같은 시각에 EXIT가 ENTRY보다 앞에 적혔는지, 그리고 작업을 시각 순으로 재생하면서 들어오거나 나가는 블록이 그 순간 베이에 있는 다른 블록에 가려지지 않는지를 봅니다. 다각형 교차는 shapely로 계산하고, 바운딩 박스가 안 겹치는 쌍은 건너뛰고, 쌍별 결과를 기억해 두어 빠르게 만들었습니다. 검사 도중에도 수시로 시계를 봐서 T − 1을 넘으면 그만둡니다.</p>
+
+    <h3>이 모든 것이 −1점 때문이다</h3>
+    <p>대회 채점에서 무효한 해, 시간 초과, 비정상 종료는 그 문제에서 −1점입니다(1장). 유효한 해는 다른 팀보다 나빠도 그보다 높은 점수를 받으므로, 조금 나쁜 유효 해가 무효 해보다 항상 낫습니다. 4부의 장치들은 모두 이 비대칭에서 나옵니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>위험</th><th>대비</th></tr></thead>
+      <tbody>
+        <tr><td>솔버가 내놓은 해가 공식 검증에서 무효</td><td>솔버의 충돌 판정(미리 계산한 격자, 4장)과 다른 방법(다각형 교차)으로 다시 검사하고, 떨어지면 다음 후보로 넘어갑니다.</td></tr>
+        <tr><td>솔버가 제한 시간 안에 끝나지 않음</td><td>T − 1에 강제 종료하고, 그때까지 출력된 후보를 씁니다.</td></tr>
+        <tr><td>솔버가 도중에 비정상 종료</td><td>종료 코드와 무관하게 이미 출력된 후보를 씁니다.</td></tr>
+        <tr><td>검증 자체가 오래 걸림</td><td>검증에도 시한을 두고, 넘으면 점수 1등을 그대로 돌려줍니다.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="src">보고서는 학습 40문제의 모든 실행이 유효한 해를 냈다고 적고 있습니다. <code>check_feasibility_fast</code>가 공식 검증기(<span class="mono">tools/alg_tester/utils.py</span>의 <code>check_feasibility</code>)와 항상 같은 판정을 내는지는 제가 대조하지 않았습니다. 솔버 실행 인자는 <span class="mono">tools/myalgorithm.py:299</span>, 후보 정리는 <span class="mono">:247</span>, 검증 반복은 <span class="mono">:344</span>입니다.</p>
+  </section>
+
+  <!-- ================= 5부 ================= -->
+  <div class="part">5부 · 보고서와 코드를 나란히 놓고 보면</div>
+
+  <section>
+    <h2>설명과 코드가 다른 부분</h2>
+    <p>큰 줄기는 일치합니다. 고르게 나누는 방식, 확장의 5%·5초, 남은 시간으로 마감을 다시 계산하는 것, EXIT를 먼저 넣는 것은 보고서의 설명과 코드가 같습니다. 세부에서 어긋나거나 설명이 단순화된 곳은 다음과 같습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>항목</th><th>보고서·발표 자료</th><th>코드</th></tr></thead>
+      <tbody>
+        <tr><td>호라이즌 안의 순서</td><td>Algorithm 1은 확장(6~8행)을 먼저 하고 그 뒤에 w₂와 시간 배분(9~14행)을 정합니다.</td><td>w₂와 마감을 먼저 계산하고 확장을 합니다. 확장도 그 w₂를 쓰고, 확장 시간은 이번 몫 안에서 떼어 냅니다(<span class="mono">optimize.rs:437~454</span>).</td></tr>
+        <tr><td>확장에서 다시 넣는 순서</td><td>"무작위 순서로(in random order) 탐욕 재삽입"</td><td>완전한 무작위가 아닙니다. 부피·한계 시각의 급함 등을 가중합한 점수 순이고, 가중치와 무작위 항을 시도마다 새로 뽑습니다(<span class="mono">reconstruct.rs:643</span>).</td></tr>
+        <tr><td>후보 해 출력</td><td>"현재의 공유 최선을 탐색 중 주기적으로 내보낸다"</td><td>마지막 호라이즌에서만, 공유 최선이 갱신된 순간에, 간격이 지났을 때만 내보냅니다. 여기에 강제 출력이 두 번 더 있습니다.</td></tr>
+        <tr><td>시간 배분의 N<sub>h</sub></td><td>최종 발표 17쪽은 "호라이즌 h에 투입된 블록 수"라고 적습니다.</td><td>누적 블록 수(<code>horizon.end</code>)입니다. 보고서 본문은 누적(cumulative)이라고 정확히 적고 있습니다.</td></tr>
+        <tr><td>w₂의 점진 도입</td><td>시도했다가 버린 것</td><td><code>horizon_w2_power</code>라는 선택 항목으로 남아 있고, 기본 설정에서는 꺼져 있습니다.</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>이 장에서 확인하지 못한 것</h2>
+    <ul class="plain">
+      <li><strong>실행 결과 전부.</strong> 확장에서 시도가 몇 번 돌고 몇 번이 가지치기로 끊기는지, 후보가 실제로 몇 번 출력되는지, 사전계산과 검증에 몇 초가 걸리는지는 솔버를 돌려야 알 수 있습니다. 로그를 그려 주는 도구(<span class="mono">tools/plot_horizon_score.py</span>)는 저장소에 있습니다.</li>
+      <li><strong>호라이즌에 들어가는 실제 블록.</strong> 추상 사전최적화의 결과가 있어야 투입 순서가 나옵니다.</li>
+      <li><strong>파라미터 값의 근거.</strong> 호라이즌 크기 20, γ = 2.0, 확장 5%가 다른 값보다 얼마나 나은지는 보고서에 수치가 없습니다.</li>
+      <li><strong>검증 함수의 동등성.</strong> 파이썬 쪽 빠른 검증과 공식 검증기를 줄 단위로 대조하지 않았습니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>이해 확인</h2>
+    <details>
+      <summary>블록 150개 문제는 호라이즌이 몇 개이고, 하나에 블록이 몇 개씩 들어가나요?</summary>
+      <p>⌈150 / 20⌉ = 8개입니다. 150을 8로 고르게 나누므로 18개짜리 2개와 19개짜리 6개가 됩니다. 20개씩 7번 넣고 10개를 남기는 방식이 아닙니다. 20은 한 호라이즌 크기의 상한입니다.</p>
+    </details>
+    <details>
+      <summary>어느 호라이즌의 SA가 예정보다 10초 늦게 끝났습니다. 전체 마감은 어떻게 되나요?</summary>
+      <p>그대로입니다. 다음 호라이즌이 시작될 때 "전체 마감 − 지금"을 남은 호라이즌들의 가중치 비율로 다시 나누기 때문입니다. 늦어진 10초는 남은 호라이즌들이 가중치에 비례해 나눠서 덜 받습니다.</p>
+    </details>
+    <details>
+      <summary>확장에 주어진 시간이 0초여도 새 블록은 일정에 들어가나요?</summary>
+      <p>들어갑니다. 확장의 반복문은 "완성된 해가 하나 이상 있고 시간이 지났을 때"만 끝나므로 첫 시도는 반드시 끝까지 갑니다. 입고 시각에 상한이 없어서 삽입도 실패하지 않습니다. 다만 시도가 한 번뿐이라 여러 번 해 보고 고르는 효과는 없습니다.</p>
+    </details>
+    <details>
+      <summary>확장의 한 시도에서 블록 4개만 넣고 그만두는 일이 있습니다. 왜 그래도 되나요?</summary>
+      <p>이미 놓인 블록들의 w₁·지연 + w₃·선호 벌점 합이 지금까지의 최선 점수 이상이 되었기 때문입니다. 남은 블록을 넣으면 이 합은 늘거나 그대로이고 w₂·Z₂ 항도 0 이상이므로, 끝까지 가도 최선보다 좋아질 수 없습니다.</p>
+    </details>
+    <details>
+      <summary>대회 제한이 300초인데 솔버가 멈추지 않으면 어떻게 되나요?</summary>
+      <p>파이썬 쪽이 299초에 솔버를 강제 종료하고 그때까지 표준 출력에 나온 후보를 읽습니다. 검증할 시간은 남지 않았으므로 점수가 가장 좋은 후보를 검증 없이 돌려줍니다. 마지막 호라이즌의 확장이 끝나기 전이라 후보가 하나도 없었다면 예외가 나고, 그 문제는 −1점입니다.</p>
+    </details>
+  </section>
+  <div class="pager"><a href="#ch5">← 이전: 5장 탐욕 삽입</a><a href="#ch7">다음: 7장 SA와 이웃 →</a></div>
+  </article>

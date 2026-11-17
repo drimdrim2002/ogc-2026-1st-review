@@ -1,0 +1,831 @@
+  <article class="chapter" id="ch5">
+  <header>
+    <div class="kicker">5 / 8</div>
+    <h1>탐욕 삽입: 블록 하나의 자리와 입고 시각을 한 번에 찾는다</h1>
+  </header>
+
+  <section>
+    <p class="lead">탐욕 삽입(greedy insertion)은 이미 놓인 블록들은 그대로 둔 채, 블록 하나를 <strong>지금 가장 좋은 베이, 방향, 좌표, 입고 시각</strong>에 넣는 함수입니다. 2단계의 모든 동작이 이 함수 위에 서 있습니다. 호라이즌을 시작할 때 새 블록 20개를 넣는 것도, SA의 큰 재구성과 Move 이웃이 블록을 빼고 다시 넣는 것도 이 함수를 부릅니다.</p>
+    <p>이 장은 실제 삽입 한 번을 처음부터 끝까지 따라갑니다. 먼저 후보가 얼마나 많은지를 세어 보고, 바깥 반복(베이, 방향, 행), 한 행을 훑는 방법, 그 결과에서 입고 시각이 나오는 과정, 후보 하나를 고르는 방식을 차례로 봅니다. 코드는 <span class="mono">src/solver/insert.rs</span>(197줄)와 <span class="mono">src/solver/placement_scan.rs</span>(619줄)입니다.</p>
+    <div class="note">
+      <p><strong>배경: 차량 경로 문제의 "가장 싼 삽입"과 같은 뼈대</strong></p>
+      <p>경로 문제의 구성 휴리스틱인 가장 싼 삽입(cheapest insertion)은 고객 하나를 모든 경로의 모든 위치에 끼워 보고, 비용이 가장 적게 늘어나는 곳에 넣습니다. 시간 창이 있으면 위치마다 "여기에 넣으면 서비스를 가장 일찍 언제 시작할 수 있나"를 계산해 가능한 위치만 남깁니다. 탐욕 삽입도 뼈대가 같습니다. 블록 하나를 모든 위치에 넣어 보고 목적 함수 증가량 ΔF가 가장 작은 곳을 고릅니다.</p>
+      <p>다른 점은 "위치"의 크기와 가능성 검사의 비용입니다. 경로에서 위치는 "몇 번째 고객 사이"라는 수십 가지이지만 여기서는 (베이, 방향, x, y)의 수만 가지이고, 위치마다 가능한 입고 시각이 기하 관계로 정해집니다. 그래서 이 장의 대부분은 그 검사를 싸게 만드는 방법에 관한 것입니다.</p>
+    </div>
+    <div class="note">
+      <p><strong>이 장의 예제가 어떻게 만들어졌는가</strong></p>
+      <p>이 기기에서는 솔버를 실행할 수 없습니다. 그래서 두 파일의 로직을 파이썬으로 옮겨 <span class="mono">train/prelim_prob_1.json</span>에 직접 돌렸습니다. 블록을 release가 빠른 순서로 40개 넣어 부분 일정을 만들고, 41번째 블록을 넣는 순간을 예제로 씁니다. 블록의 모양, 시각, 가중치는 모두 실제 데이터이고 좌표와 시각은 실제 규칙으로 계산한 값입니다. 다만 넣는 순서(추상 사전최적화 대신 release 순)와 무작위 요소(행을 섞지 않고 전부 봄)는 제가 단순화한 것이라, 솔버가 실제로 거쳐 가는 중간 상태와 같지는 않습니다.</p>
+    </div>
+  </section>
+
+  <!-- ================= 1부 ================= -->
+  <div class="part">1부 · 삽입이 답하는 질문</div>
+
+  <section>
+    <h2>실제 상황 하나: 41번째 블록을 넣는다</h2>
+    <p><span class="mono">prelim_prob_1</span>의 베이 세 곳에 블록 40개가 이미 놓여 있습니다(베이 0에 17개, 베이 1에 9개, 베이 2에 14개). 여기에 <span class="mono">blocks[78]</span>을 넣으려 합니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>blocks[78]의 필드</th><th>값</th><th>뜻</th></tr></thead>
+      <tbody>
+        <tr><td>R, P, D</td><td>21, 6, 29</td><td>21일부터 넣을 수 있고 6일 머문다. 23일까지 넣으면 납기(29일)를 지킨다</td></tr>
+        <tr><td><code>bay_preferences</code></td><td>[15, 16, 69]</td><td>베이 2를 가장 선호</td></tr>
+        <tr><td><code>shape</code></td><td>방향 8개, 모두 2층</td><td>층 1이 층 0보다 넓다(돌출부가 있다)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>정해야 하는 것은 (베이, 방향, x, y, 입고 시각) 다섯 가지입니다. 출고 시각은 따로 정하지 않습니다. 이 해법은 항상 출고 = 입고 + P로 두기 때문입니다(1장). 후보가 몇 개인지 세어 보겠습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>베이</th><th>크기</th><th>블록이 베이 안에 들어가는 (방향, x, y)의 수</th></tr></thead>
+      <tbody>
+        <tr><td>베이 0</td><td>165 × 25</td><td>16,852</td></tr>
+        <tr><td>베이 1</td><td>144 × 28</td><td>17,728</td></tr>
+        <tr><td>베이 2</td><td>68 × 24</td><td>5,728</td></tr>
+        <tr><td>합</td><td></td><td>40,308</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>여기에 입고 시각이 곱해집니다. 21일부터 60일까지 40가지만 본다고 해도 40,308 × 40 = 약 161만 가지입니다. 후보 하나가 유효한지 확인하려면 같은 베이의 블록 9~17개와 층별 다각형이 겹치는지, 크레인 길이 막히는지를 따져야 합니다.</p>
+    <p>그리고 삽입은 한 번만 하는 일이 아닙니다. SA의 한 걸음에서 Move 이웃은 삽입을 1번, 큰 재구성은 7~13번 부르고, SA는 이런 걸음을 제한 시간 내내 반복합니다. 161만 가지를 하나씩 검사하는 방식으로는 걸음 수가 너무 적어집니다. 이 장의 내용은 결국 <strong>이 161만 가지를 몇백 번의 계산으로 줄이는 방법</strong>입니다.</p>
+    <p class="src">위치 수는 방향마다 바운딩 박스가 베이 안에 들어가는 정수 좌표를 센 것입니다. 코드에서는 <code>fit_range</code>가 이 범위를 줍니다(<span class="mono">src/solver/collision.rs:668</span>, 4장). 큰 재구성이 빼는 블록 수 7~13은 <span class="mono">params/default.yaml</span>의 <code>remove_count.range</code>입니다.</p>
+  </section>
+
+  <section>
+    <h2>함수의 입력과 출력</h2>
+<pre><span class="c">// src/solver/insert.rs:63</span>
+pub(crate) fn insert_greedy&lt;R: Random&gt;(
+    problem: &amp;Problem, pre: &amp;Precompute,
+    original: ScheduledBlock,        <span class="c">// 넣을 블록. 기준이 되는 배치(뒤에서 설명)</span>
+    min_entry_time: i64,             <span class="c">// 입고 시각의 아래 한계</span>
+    max_entry_time: i64,             <span class="c">// 입고 시각의 위 한계</span>
+    schedule: &amp;[ScheduledBlock],     <span class="c">// 이미 놓인 블록들. 이 함수는 건드리지 않는다</span>
+    loads: &amp;[f64],                   <span class="c">// 베이별 workload 합 (Z₂ 계산용)</span>
+    params: &amp;InsertParams,           <span class="c">// y_buffer, candidate_top_k, candidate_select_p</span>
+    bay_order: &amp;[usize],             <span class="c">// 베이를 도는 순서</span>
+    w2: f64,                         <span class="c">// 이번 호라이즌의 w₂ (마지막 호라이즌이 아니면 0)</span>
+    anchor: InsertAnchor,            <span class="c">// 어느 모서리 쪽으로 붙일지</span>
+    rng: &amp;mut R,
+) -&gt; Option&lt;ScheduledBlock&gt;          <span class="c">// 찾은 배치. 범위 안에 자리가 없으면 None</span></pre>
+    <p>돌려주는 값은 블록 하나의 배치(<code>ScheduledBlock</code>)이고, <code>exit_time</code>은 항상 <code>entry_time + P</code>로 채워집니다(<span class="mono">placement_scan.rs:289</span>). 받은 <code>schedule</code>에 넣는 일은 호출한 쪽이 합니다.</p>
+  </section>
+
+  <!-- ================= 2부 ================= -->
+  <div class="part">2부 · 바깥 반복: 베이, 방향, 행</div>
+
+  <section>
+    <h2>전체 구조</h2>
+    <p><code>insert_greedy</code>는 삼중 반복입니다. x 좌표와 입고 시각에 대한 반복은 없습니다. 그 둘은 가장 안쪽의 "한 행 훑기"가 한꺼번에 처리합니다.</p>
+<pre><span class="c">// src/solver/insert.rs:112~196 의 구조</span>
+후보 목록 = [],  지금까지의 최소 ΔF = ∞
+
+for 베이 in 선호가 높은 순:                         <span class="c">// ① 베이</span>
+    이 베이에서 가능한 ΔF의 하한 &gt; 지금까지의 최소 ΔF 이면 건너뜀
+    스캐너 = PlacementXScanner::new(이 베이의 블록들, 입고 시각 범위)
+
+    for 방향 in 바운딩 박스가 작은 순:              <span class="c">// ② 방향</span>
+        이 방향의 최선 후보 = 없음
+        행 목록 = 블록이 베이 안에 들어가는 y 전부, 무작위로 섞음
+
+        for y in 행 목록:                           <span class="c">// ③ 행</span>
+            스캐너.scan_y(방향, y) 가 내놓는 후보마다:   <span class="c">// 한 행 훑기 (3부, 4부)</span>
+                ΔF 계산, 최소 ΔF 갱신, 이 방향의 최선 후보 갱신
+            기준을 만족하는 행이 처음 나온 뒤로 y_buffer(10)개 행을 더 봤으면 중단
+
+        이 방향의 최선 후보를 후보 목록에 추가       <span class="c">// (베이, 방향)마다 최대 1개</span>
+
+후보 목록에서 최소 ΔF와 동점인 것만 남기고, 정렬해서 위 4개 중 하나를 확률적으로 고름   <span class="c">// 5부</span></pre>
+  </section>
+
+  <section>
+    <h2>① 베이: 선호 순으로 돌고, 하한으로 건너뛴다</h2>
+    <p>후보를 비교하는 기준은 그 후보를 넣었을 때 목적 함수가 늘어나는 양입니다.</p>
+    <div class="formula">ΔF = w₁ · 지연 + w₂ · ΔZ₂ + w₃ · 선호 벌점</div>
+    <p>이 중 뒤의 두 항은 베이만 정해지면 값이 나옵니다. 지연만 좌표와 시각에 따라 달라지는데, 지연에도 하한이 있습니다. 아무리 빨리 넣어도 <code>min_t</code>(= R과 <code>min_entry_time</code> 중 큰 값)보다 일찍 넣을 수는 없기 때문입니다. 그래서 베이를 훑기 전에 "이 베이에서 나올 수 있는 가장 좋은 ΔF"를 계산할 수 있습니다.</p>
+<pre><span class="c">// src/solver/insert.rs:120</span>
+let delta_obj23 = delta_obj2 + problem.weights.w3 * pre.pref_penalty[block_id][bay_id] as f64;
+let min_tardiness = min_t.saturating_add(process_t).saturating_sub(block.due_date).max(0);
+let lower_score_delta = problem.weights.w1 * min_tardiness as f64 + delta_obj23;
+if lower_score_delta &gt; best_score_delta {
+    continue;                                   <span class="c">// 이 베이는 훑지 않는다</span>
+}</pre>
+    <p>블록 78로 계산하면 이렇습니다. 이 문제의 가중치는 w₁ = 21,622, w₃ = 150이고, 마지막 호라이즌이 아니라서 w₂ = 0입니다. 가장 빠른 출고는 21 + 6 = 27일로 납기 29일보다 앞이므로 지연의 하한은 0입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>도는 순서</th><th>선호 점수</th><th>선호 벌점</th><th>ΔF의 하한</th><th>결과</th></tr></thead>
+      <tbody>
+        <tr><td>베이 2</td><td>69</td><td>0</td><td>0</td><td>훑는다. 지연 0인 자리를 찾아서 최소 ΔF = 0</td></tr>
+        <tr><td>베이 1</td><td>16</td><td>69 − 16 = 53</td><td>150 × 53 = 7,950</td><td>7,950 &gt; 0 이므로 건너뜀</td></tr>
+        <tr><td>베이 0</td><td>15</td><td>69 − 15 = 54</td><td>150 × 54 = 8,100</td><td>8,100 &gt; 0 이므로 건너뜀</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>가장 선호하는 베이에 제때 들어갈 자리가 있으면 나머지 베이는 보지 않습니다. 반대로 베이 2에서 찾은 최선이 하루 지연(ΔF = 21,622)이었다면, 7,950과 8,100이 그보다 작으므로 두 베이를 모두 훑습니다. 하루 지연이 가장 싫어하는 베이로 가는 것보다 비싸기 때문에 생기는 일입니다.</p>
+    <p>w₂가 켜진 마지막 호라이즌에서는 <code>delta_obj2</code>가 더해집니다. 이 블록의 workload를 그 베이에 더했을 때 Z₂가 얼마나 변하는지를 <code>score_z2</code>로 두 번 계산해 뺀 값이고, 음수가 될 수도 있습니다(<span class="mono">insert.rs:113</span>).</p>
+    <p class="src">베이 순서 <code>bay_order_by_pref</code>는 선호 점수가 높은 순, 같으면 번호가 작은 순입니다(<span class="mono">src/solver/precompute.rs:204</span>). 세 호출처가 모두 이 순서를 넘깁니다.</p>
+  </section>
+
+  <section>
+    <h2>② 방향: 바운딩 박스가 작은 것부터, 전부 본다</h2>
+    <p>방향은 건너뛰지 않고 전부 봅니다. 순서는 바운딩 박스의 넓이가 작은 순입니다(<code>orientation_order_by_bbox</code>, <span class="mono">precompute.rs:224</span>). 블록 78은 0, 2, 4, 6번(가로세로 14.0 × 6.0, 넓이 84.8)이 먼저이고 1, 3, 5, 7번(45° 돌린 모양, 넓이 154.8)이 뒤입니다. 그 방향으로 베이에 들어가지 않으면 <code>fit_range</code>가 <code>None</code>이라 넘어갑니다.</p>
+    <p>방향마다 후보를 하나만 남긴다는 점이 중요합니다. 한 방향의 모든 행, 모든 x에서 나온 후보 중 가장 좋은 것 하나(<code>group_best</code>)만 후보 목록에 들어갑니다. 그래서 마지막 선택 단계에 올라오는 후보는 많아야 (베이 수 × 방향 수)개이고, 서로 베이나 방향이 다릅니다.</p>
+  </section>
+
+  <section>
+    <h2>③ 행: 섞어서 보고, 충분하면 그만 본다</h2>
+    <p>한 방향에서 블록이 베이 안에 들어가는 y의 범위는 좁습니다. 블록 78의 방향 6은 베이 2에서 y = 7~24, 18개 행입니다. 학습 데이터 전체로 보면 (블록, 방향, 베이) 조합 74,408개에서 행 수의 중앙값이 10, 최대가 27입니다.</p>
+    <p>코드는 이 행들을 <strong>무작위로 섞은 뒤</strong> 차례로 훑습니다. 그리고 "기준을 만족하는 행"이 처음 나오면, 그 뒤로 <code>y_buffer</code> = 10개 행만 더 보고 멈춥니다.</p>
+<pre><span class="c">// src/solver/insert.rs:141</span>
+let mut ys: Vec&lt;i64&gt; = (range.min_y..=range.max_y).collect();
+rng.shuffle(&amp;mut ys);
+let mut remaining_y_buffer = None;
+
+for y in ys {
+    if remaining_y_buffer == Some(0) { break; }
+
+    let valid_y = scanner.scan_y(orient_idx, y, horizontal_anchor, |scheduled| {
+        let tardiness = (scheduled.exit_time - block.due_date).max(0);
+        …                                             <span class="c">// ΔF 계산, 최선 후보 갱신 (5부)</span>
+        tardiness &lt;= original_tardiness                <span class="c">// ← 이 후보가 "기준"을 만족하는가</span>
+    });
+
+    match &amp;mut remaining_y_buffer {
+        None if valid_y =&gt; remaining_y_buffer = Some(params.y_buffer),
+        Some(remaining) =&gt; *remaining -= 1,
+        None =&gt; {}
+    }
+}</pre>
+    <p class="src">Rust 읽는 법: <code>|scheduled| { … }</code>는 <code>scan_y</code>가 후보를 하나 찾을 때마다 부르는 이름 없는 함수(콜백)이고, 그 마지막 줄의 참·거짓이 "이 후보가 기준을 만족하는가"로 돌아갑니다. <code>match</code>는 값의 모양에 따라 갈라지는 분기문입니다. <code>remaining_y_buffer</code>가 <code>None</code>(기준을 만족한 행이 아직 없음)인데 이번 행이 만족했으면 10을 넣고, 이미 숫자가 들어 있으면 1을 줄입니다.</p>
+    <p>"기준을 만족하는 행"의 정확한 뜻은 이렇습니다. 그 행에서 나온 후보 중 <strong>지연이 <code>original_tardiness</code> 이하인 것이 하나라도 있는 행</strong>입니다. <code>original_tardiness</code>는 인자 <code>original</code>의 지연, 즉 <code>max(0, original.exit_time − D)</code>입니다(<span class="mono">insert.rs:108</span>). <code>original</code>이 무엇인지는 호출처마다 다르고 5부에서 정리합니다. 지금은 "이 블록이 원래 있던 자리, 또는 추상 일정이 정해 준 자리"라고 생각하면 됩니다.</p>
+    <ul class="plain">
+      <li>기준만큼 좋은 후보가 있는 행을 찾으면, 그 뒤로 10개 행만 더 보고 그 방향을 끝냅니다. 섞은 순서의 첫 행이 바로 기준을 만족하면 11개 행만 보는 셈입니다. 방향 6이라면 18개 중 11개입니다. 행이 11개 이하인 방향은 어차피 전부 봅니다.</li>
+      <li>그런 행이 끝까지 안 나오면 모든 행을 봅니다. 원래보다 나쁜 자리밖에 없는 어려운 상황에서는 탐색을 줄이지 않는다는 뜻입니다.</li>
+      <li>행을 섞기 때문에 같은 상황에서 불러도 매번 보는 행이 다르고, 결과도 달라질 수 있습니다. SA가 같은 블록을 여러 번 다시 넣어 볼 때 다른 자리가 나오게 하는 장치입니다.</li>
+    </ul>
+    <p class="src">행 수 통계는 <span class="mono">train/</span> 14개 문제에서 <code>fit_range</code>와 같은 식으로 직접 세었습니다. 행이 12개 이상이라 <code>y_buffer</code>로 줄어들 수 있는 조합은 그중 40%입니다.</p>
+  </section>
+
+  <!-- ================= 3부 ================= -->
+  <div class="part">3부 · 한 행 훑기: x를 왼쪽에서 오른쪽으로</div>
+
+  <section>
+    <h2>준비: 시간상 무관한 블록을 먼저 뺀다</h2>
+    <p>한 행을 훑는 일은 <code>PlacementXScanner</code>가 맡습니다. 베이 하나에 대해 한 번 만들고(<span class="mono">placement_scan.rs:210</span>), 방향과 y를 바꿔 가며 여러 번 씁니다. 만들 때 하는 일은 두 가지입니다.</p>
+    <p><strong>첫째, 그 베이의 블록만 고릅니다.</strong> 베이 2에는 14개가 있습니다.</p>
+    <p><strong>둘째, 블록마다 "새 블록과 체류 기간이 겹칠 수 있는가"를 계산합니다.</strong> 기존 블록이 a일에 들어와 b일에 나간다면, 작업 기간이 P인 새 블록이 그 블록과 하루라도 함께 있게 되는 입고 시각 e는 <span class="mono">a − P + 1 ≤ e ≤ b − 1</span>입니다. 이 범위를 허용된 입고 시각 범위 [<code>min_t</code>, <code>max_t</code>]로 자릅니다. 남는 것이 없으면 그 블록은 새 블록과 만날 일이 없으므로 이후 계산에서 완전히 빠집니다.</p>
+<pre><span class="c">// src/solver/placement_scan.rs:444  old_time_info()</span>
+let a = old.entry_time;
+let b = old.exit_time;
+let ol = (a - process_t + 1).max(min_t);      <span class="c">// 겹치는 입고 시각의 최솟값</span>
+let or = (b - 1).min(max_t);                  <span class="c">// 겹치는 입고 시각의 최댓값</span>
+if ol &lt;= or { Some(OldTimeInfo { … }) } else { None }</pre>
+    <p>블록 78은 <code>min_t</code> = 21, <code>max_t</code> = 제한 없음, P = 6입니다. 베이 2의 14개 중 10개는 21일까지 이미 나가서 <code>None</code>이 되고, 4개만 남습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>기존 블록</th><th>체류 (a ~ b)</th><th>층 수</th><th>겹치는 입고 시각 ol ~ or</th></tr></thead>
+      <tbody>
+        <tr><td>49</td><td>11 ~ 23</td><td>2</td><td>21 ~ 22</td></tr>
+        <tr><td>45</td><td>18 ~ 23</td><td>2</td><td>21 ~ 22</td></tr>
+        <tr><td>46</td><td>19 ~ 27</td><td>2</td><td>21 ~ 26</td></tr>
+        <tr><td>40</td><td>21 ~ 29</td><td>2</td><td>21 ~ 28</td></tr>
+        <tr><td>나머지 10개</td><td>21일까지 모두 출고</td><td></td><td>없음 (계산에서 제외)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>예를 들어 블록 49는 23일에 나가므로 새 블록이 21일이나 22일에 들어올 때만 만납니다. 23일 이후에 들어오면 49가 있던 자리를 써도 됩니다.</p>
+  </section>
+
+  <section>
+    <h2>블록마다 두 방향의 상태를 둔다</h2>
+    <p>1장에서 두 블록의 관계는 "누가 누구를 가리는가"로 정해진다고 했습니다. 새 블록을 어떤 (x, y)에 놓았을 때, 기존 블록 하나에 대해 서로 독립인 두 가지 질문이 있습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>코드의 이름</th><th>질문</th><th>성립하면</th></tr></thead>
+      <tbody>
+        <tr><td><code>new_old</code></td><td><strong>기존 블록이 새 블록을 가리는가.</strong> 새 블록의 어떤 층 k가 기존 블록의 층 j ≥ k와 겹치는가</td><td>기존 블록이 있는 동안 새 블록은 들어올 수도 나갈 수도 없다</td></tr>
+        <tr><td><code>old_new</code></td><td><strong>새 블록이 기존 블록을 가리는가.</strong> 기존 블록의 어떤 층 k가 새 블록의 층 j ≥ k와 겹치는가</td><td>새 블록이 있는 동안 기존 블록은 들어올 수도 나갈 수도 없다</td></tr>
+      </tbody>
+    </table>
+    </div>
+<pre><span class="c">// src/solver/placement_scan.rs:23</span>
+struct HitState {
+    new_old: u16,     <span class="c">// "기존 블록이 새 블록을 가린다"가 성립하는 금지 구간이 지금 몇 개 열려 있는가</span>
+    old_new: u16,     <span class="c">// "새 블록이 기존 블록을 가린다"가 성립하는 금지 구간이 지금 몇 개 열려 있는가</span>
+}</pre>
+    <p>두 값은 횟수이지만 쓰이는 것은 0인지 아닌지뿐입니다. 그래서 기존 블록 하나의 상태는 네 가지 중 하나이고, 코드는 이를 0~3의 번호로 만듭니다(<code>hit_state_index</code>, <span class="mono">placement_scan.rs:550</span>). 비트 0이 <code>new_old</code>, 비트 1이 <code>old_new</code>입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>번호</th><th><code>new_old</code></th><th><code>old_new</code></th><th>관계 (1장의 표현)</th></tr></thead>
+      <tbody>
+        <tr><td>0</td><td>0</td><td>0</td><td>서로 가리지 않음</td></tr>
+        <tr><td>1</td><td>&gt; 0</td><td>0</td><td>기존 블록만 새 블록을 가림</td></tr>
+        <tr><td>2</td><td>0</td><td>&gt; 0</td><td>새 블록만 기존 블록을 가림</td></tr>
+        <tr><td>3</td><td>&gt; 0</td><td>&gt; 0</td><td>서로 가림</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>충돌 격자에서 금지 x 구간을 얻는다</h2>
+    <p>방향과 y를 정하면, 각 질문의 답은 x에 따라 달라집니다. 이것을 x마다 다각형을 겹쳐 보며 구하지 않습니다. 4장의 충돌 격자가 이미 답을 구간으로 갖고 있습니다. 이 장에서 쓰는 인터페이스는 이것 하나입니다.</p>
+<pre><span class="c">// src/solver/collision.rs:113, 235</span>
+pre.collision.crane_pair(moving, fixed)      <span class="c">// (블록, 방향) 한 쌍 → 격자. fixed가 moving을 가리는 상대 위치의 집합</span>
+    .crane.dx_intervals(dy)                  <span class="c">// dy 하나 → [(lo, hi), …]  금지 dx 구간 목록</span>
+<span class="c">// (dx, dy) = fixed의 기준점 − moving의 기준점.  lo ≤ dx ≤ hi 이면 fixed가 moving을 가린다</span></pre>
+    <p>기존 블록 하나마다 격자를 두 개 씁니다. 새 블록이 moving인 것(<code>new_old</code>용)과 기존 블록이 moving인 것(<code>old_new</code>용)입니다. dx를 새 블록의 x로 바꾸는 식은 방향에 따라 부호가 다릅니다.</p>
+<pre><span class="c">// src/solver/placement_scan.rs:357  (old = 기존 블록의 배치, y = 지금 훑는 행)</span>
+for &amp;(lo, hi) in new_old_pair.crane.dx_intervals(old.y - y) {     <span class="c">// dx = old.x − x</span>
+    push_x_event(old.x - hi, old.x - lo, old_idx, 1, min_x, max_x, &amp;mut self.events);
+}
+for &amp;(lo, hi) in old_new_pair.crane.dx_intervals(y - old.y) {     <span class="c">// dx = x − old.x</span>
+    push_x_event(old.x + lo, old.x + hi, old_idx, 2, min_x, max_x, &amp;mut self.events);
+}</pre>
+    <p>블록 78을 방향 6으로, y = 7 행에 놓는 경우를 계산해 보면 금지 x 구간은 네 개가 나옵니다. 이 방향에서 x가 움직일 수 있는 범위는 0~53입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>기존 블록</th><th>질문</th><th>격자가 준 x 구간</th><th>0~53으로 자른 뒤</th></tr></thead>
+      <tbody>
+        <tr><td>49</td><td>49가 새 블록을 가림 (<code>new_old</code>)</td><td>−13 ~ 11</td><td>0 ~ 11</td></tr>
+        <tr><td>49</td><td>새 블록이 49를 가림 (<code>old_new</code>)</td><td>−13 ~ 11</td><td>0 ~ 11</td></tr>
+        <tr><td>40</td><td>40이 새 블록을 가림 (<code>new_old</code>)</td><td>19 ~ 45</td><td>19 ~ 45</td></tr>
+        <tr><td>40</td><td>새 블록이 40을 가림 (<code>old_new</code>)</td><td>13 ~ 45</td><td>13 ~ 45</td></tr>
+        <tr><td>45, 46</td><td>둘 다</td><td>없음</td><td>이 행에서는 닿지 않음</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>블록 40의 두 구간이 다릅니다. x = 13~18에서는 새 블록이 40을 가리지만 40은 새 블록을 가리지 않습니다. 아래 그림에서 그 이유가 보입니다.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 480" role="img" aria-label="위쪽은 prelim_prob_1의 베이 2를 위에서 본 그림으로, 기존 블록 49, 45, 46, 40과 x 13, y 7에 놓은 새 블록 78이 실제 좌표로 그려져 있다. 아래쪽은 같은 x 축에 맞춘 띠 그림으로, 기존 블록별 두 방향 금지 구간과 x 구간별 가장 이른 입고 시각 23, 21, 22, 29, 21을 보여 준다.">
+        <text x="20" y="20" font-size="12" fill="currentColor">베이 2 (68 × 24) · 21일 이후에도 남아 있는 블록 4개와, 방향 6으로 y = 7 행에 놓아 보는 새 블록 78</text>
+        <rect x="20" y="30" width="680" height="240" class="f-bay" stroke-width="1.5"/>
+        <!-- 기존 블록: 층 0 파랑, 층 1 녹색 -->
+        <polygon points="20.0,270.0 25.3,194.3 32.8,114.0 93.1,113.8 82.4,188.8 135.7,193.8 75.8,269.7" class="f-steel" stroke-width="1"/>
+        <polygon points="20.0,270.0 25.3,194.3 82.4,188.8 135.7,193.8 75.8,269.7" class="f-hull" stroke-width="1" fill-opacity=".8"/>
+        <polygon points="150.0,130.0 151.3,99.8 111.8,94.2 102.8,94.2 82.7,77.7 112.7,32.5 150.6,36.4 188.7,40.8 191.1,102.0 190.8,130.4" class="f-steel" stroke-width="1"/>
+        <polygon points="150.0,130.0 151.3,99.8 112.7,32.5 150.6,36.4 188.7,40.8 191.1,102.0 190.8,130.4" class="f-hull" stroke-width="1" fill-opacity=".8"/>
+        <polygon points="440.0,70.0 346.2,72.1 260.5,68.3 254.9,135.3 248.0,186.4 339.2,131.2 435.1,131.7" class="f-steel" stroke-width="1"/>
+        <polygon points="440.0,70.0 346.2,72.1 260.5,68.3 254.9,135.3 156.0,131.4 248.0,186.4 337.0,188.9 339.2,131.2 435.1,131.7" class="f-hull" stroke-width="1" fill-opacity=".8"/>
+        <polygon points="470.0,150.0 470.4,253.7 430.1,255.8 356.1,258.4 282.9,263.7 358.1,159.9 431.9,151.5" class="f-steel" stroke-width="1"/>
+        <polygon points="470.0,150.0 470.4,253.7 430.1,255.8 356.1,258.4 431.9,151.5" class="f-hull" stroke-width="1" fill-opacity=".8"/>
+        <g font-size="12" fill="currentColor" text-anchor="middle">
+          <text x="66" y="228">49</text><text x="66" y="243" font-size="10">11~23일</text>
+          <text x="150" y="72">45</text><text x="150" y="87" font-size="10">18~23일</text>
+          <text x="345" y="100">46</text><text x="345" y="115" font-size="10">19~27일</text>
+          <text x="436" y="224">40</text><text x="436" y="239" font-size="10">21~29일</text>
+        </g>
+        <text x="336" y="232" font-size="10" fill="currentColor" text-anchor="middle">40의 층 0만</text>
+        <text x="336" y="244" font-size="10" fill="currentColor" text-anchor="middle">있는 곳</text>
+        <!-- 행 -->
+        <line x1="20" y1="200" x2="550" y2="200" class="s-muted" stroke-width="1" stroke-dasharray="5 4"/>
+        <text x="478" y="194" font-size="11" class="t-muted">y = 7: 기준점이 지나는 줄</text>
+        <!-- 새 블록 x=13 -->
+        <polygon points="150.0,200.0 168.6,201.2 212.4,208.5 252.8,209.5 290.2,211.1 287.8,260.5 251.6,259.9 225.4,259.6 150.2,227.2" class="f-crane" stroke-width="1.5" fill-opacity=".55"/>
+        <polygon points="150.0,200.0 168.6,201.2 212.4,208.5 232.6,209.0 230.4,259.6 225.4,259.6 150.2,227.2" class="f-crane" stroke-width="1.5"/>
+        <circle cx="150" cy="200" r="3.5" fill="currentColor"/>
+        <text x="193" y="230" font-size="11" fill="currentColor" text-anchor="middle">78 층 0</text>
+        <text x="260" y="240" font-size="11" fill="currentColor" text-anchor="middle">층 1만</text>
+        <circle cx="287" cy="257" r="9" class="s-crane" stroke-width="2"/>
+        <line x1="293" y1="264" x2="304" y2="282" class="s-crane" stroke-width="1.5"/>
+        <text x="308" y="292" font-size="11" class="t-crane">x = 13부터 새 블록의 층 1이 40의 층 0 끝을 덮는다</text>
+        <text x="150" y="292" font-size="11" fill="currentColor" text-anchor="middle">기준점 (13, 7)</text>
+
+        <!-- 띠: 금지 구간 -->
+        <g class="s-muted" stroke-width="1" stroke-dasharray="3 3">
+          <line x1="20" y1="316" x2="20" y2="432"/><line x1="140" y1="316" x2="140" y2="432"/><line x1="150" y1="316" x2="150" y2="432"/>
+          <line x1="210" y1="316" x2="210" y2="432"/><line x1="480" y1="316" x2="480" y2="432"/><line x1="560" y1="316" x2="560" y2="432"/>
+        </g>
+        <g font-size="11" class="t-muted" text-anchor="middle">
+          <text x="20" y="312">x = 0</text><text x="136" y="312">12</text><text x="156" y="312">13</text><text x="210" y="312">19</text><text x="480" y="312">46</text><text x="560" y="312">53 끝</text>
+        </g>
+        <rect x="20" y="322" width="120" height="13" class="f-steel" stroke-width="1"/>
+        <rect x="20" y="339" width="120" height="13" class="f-crane" stroke-width="1"/>
+        <rect x="210" y="362" width="270" height="13" class="f-steel" stroke-width="1"/>
+        <rect x="150" y="379" width="330" height="13" class="f-crane" stroke-width="1"/>
+        <g font-size="11" fill="currentColor">
+          <text x="572" y="333">49가 새 블록을 가림</text>
+          <text x="572" y="350">새 블록이 49를 가림</text>
+          <text x="572" y="373">40이 새 블록을 가림</text>
+          <text x="572" y="390">새 블록이 40을 가림</text>
+        </g>
+        <!-- 결과 -->
+        <rect x="20" y="410" width="120" height="20" class="f-hull" stroke-width="1"/>
+        <rect x="140" y="410" width="10" height="20" class="f-hull" stroke-width="1"/>
+        <rect x="150" y="410" width="60" height="20" class="f-hull" stroke-width="1"/>
+        <rect x="210" y="410" width="270" height="20" class="f-crane" stroke-width="1"/>
+        <rect x="480" y="410" width="80" height="20" class="f-hull" stroke-width="1"/>
+        <g font-size="12" fill="currentColor" text-anchor="middle" font-weight="700">
+          <text x="80" y="425">23일</text><text x="180" y="425">22일</text><text x="345" y="425">29일 (지연 6일)</text><text x="520" y="425">21일</text>
+        </g>
+        <text x="145" y="447" font-size="12" fill="currentColor" text-anchor="middle" font-weight="700">21일</text>
+        <text x="572" y="425" font-size="11" fill="currentColor">가장 이른 입고 시각</text>
+        <text x="20" y="470" font-size="11" class="t-muted">파랑·주황 막대: 그 x에서 해당 관계가 성립하는 구간 · 점선: 이벤트가 있는 x · 좌표 1 = 10px</text>
+      </svg>
+      </div>
+      <figcaption>위: 실제 좌표로 그린 베이 2. 기존 블록은 파랑이 층 0, 녹색이 층 1입니다. 블록 40은 층 0이 왼쪽 아래로 길게 나와 있고 층 1은 그보다 좁습니다. 새 블록 78(주황)은 반대로 층 1이 오른쪽으로 더 깁니다. 아래: 같은 x 축에 맞춘 금지 구간과, 구간마다 나온 가장 이른 입고 시각입니다. 기준점이 x = 0에서 53까지 움직이는 동안 결과는 다섯 번만 바뀝니다.</figcaption>
+    </figure>
+    <p>x = 13~18에서는 새 블록의 층 1(돌출부)이 40의 층 0 끝부분 위에 놓입니다. 40의 층 0 위에 새 블록의 층 1이 있으니 새 블록이 40을 가립니다. 하지만 새 블록의 층 0은 40의 어느 층과도 겹치지 않고, 새 블록의 층 1도 40의 층 1과는 겹치지 않으므로 40은 새 블록을 가리지 않습니다. x = 19부터는 새 블록의 층 0이 40의 층 0과 겹쳐서 두 방향이 모두 성립합니다.</p>
+  </section>
+
+  <section>
+    <h2>구간의 끝점이 이벤트가 된다</h2>
+    <p>축을 따라 한 방향으로 훑으면서, 상태가 바뀌는 지점에서만 일하는 방식을 계산 기하에서는 <strong>스윕</strong>(sweep, 훑기)이라고 하고, 그 지점을 <strong>이벤트</strong>라고 부릅니다. 여기서는 x 축을 훑고, 이벤트는 금지 구간이 시작하거나 끝나는 x입니다.</p>
+    <p>금지 x 구간 [l, r] 하나는 이벤트 두 개가 됩니다. x = l에서 상태를 +1 하는 것과, x = r + 1에서 −1 하는 것입니다(<code>push_x_event</code>, <span class="mono">placement_scan.rs:467</span>). 이벤트에는 어느 기존 블록의 어느 방향인지가 적힙니다.</p>
+<pre><span class="c">// src/solver/placement_scan.rs:17</span>
+struct XEvent {
+    x_offset: u32,    <span class="c">// x − min_x  (0부터 세는 위치)</span>
+    old_idx: u32,     <span class="c">// 베이 안에서 몇 번째 기존 블록인가</span>
+    update: i8,       <span class="c">// +1 / −1: new_old 를 올림 / 내림,   +2 / −2: old_new 를 올림 / 내림</span>
+}</pre>
+    <p>위 예에서는 구간 4개에서 이벤트 8개가 나옵니다. 이것을 x 순으로 정렬합니다. x가 0부터 (범위 길이)까지의 작은 정수이므로 비교 정렬 대신 계수 정렬을 씁니다(<code>counting_sort_x_events</code>, <span class="mono">placement_scan.rs:496</span>). x 값마다 이벤트 수를 세고, 누적합으로 자리를 정해 한 번에 옮기는 방식입니다. 값의 범위가 작은 정수일 때 원소 수와 범위 길이에 비례하는 시간에 끝나는 정렬입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>x</th><th>이벤트</th><th>49의 상태</th><th>40의 상태</th></tr></thead>
+      <tbody>
+        <tr><td>0</td><td>49: <code>new_old</code> +1, <code>old_new</code> +1</td><td>3 (서로 가림)</td><td>0</td></tr>
+        <tr><td>12</td><td>49: <code>new_old</code> −1, <code>old_new</code> −1</td><td>0</td><td>0</td></tr>
+        <tr><td>13</td><td>40: <code>old_new</code> +1</td><td>0</td><td>2 (새 블록만 40을 가림)</td></tr>
+        <tr><td>19</td><td>40: <code>new_old</code> +1</td><td>0</td><td>3 (서로 가림)</td></tr>
+        <tr><td>46</td><td>40: <code>new_old</code> −1, <code>old_new</code> −1</td><td>0</td><td>0</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>이벤트가 없는 x에서는 어떤 블록의 상태도 바뀌지 않습니다. 상태가 같으면 가능한 입고 시각도 같습니다. 그래서 <strong>이벤트와 이벤트 사이의 구간에서는 x를 하나만 보면 됩니다.</strong> 이 행에서 x는 54가지이지만 계산은 다섯 번입니다.</p>
+  </section>
+
+  <section>
+    <h2>훑는 반복문</h2>
+<pre><span class="c">// src/solver/placement_scan.rs:388  scan_y_ranges() 의 핵심 (일부 생략)</span>
+let mut x = min_x;
+loop {
+    <span class="c">// ① 지금 x에 걸린 이벤트를 모두 적용해 상태를 갱신한다</span>
+    while event_pos &lt; self.events.len() &amp;&amp; self.events[event_pos].x_offset == x_offset {
+        …                                             <span class="c">// 이 블록의 이전 상태가 켜 둔 금지 시각 구간을 끈다</span>
+        apply_x_event(event, &amp;mut self.states);       <span class="c">// new_old 또는 old_new 를 ±1</span>
+        event_pos += 1;
+    }
+    …                                                 <span class="c">// 상태가 바뀐 블록들의 새 금지 시각 구간을 켠다 (4부)</span>
+
+    <span class="c">// ② 다음 이벤트가 있는 x를 구한다. 그 직전까지가 한 구간이다</span>
+    let next_x = self.events.get(event_pos)
+        .map(|event| min_x + event.x_offset as i64)
+        .unwrap_or(max_x + 1);
+
+    <span class="c">// ③ 구간의 대표 x 하나에 대해서만 입고 시각을 구한다</span>
+    let candidate_x = match horizontal_anchor {
+        HorizontalAnchor::Left  =&gt; x,                        <span class="c">// 구간의 왼쪽 끝</span>
+        HorizontalAnchor::Right =&gt; (next_x - 1).min(max_x),  <span class="c">// 구간의 오른쪽 끝</span>
+    };
+    accepted |= on_x(candidate_x, ForbiddenIntervals { … });
+
+    if next_x &gt; max_x { break; }
+    x = next_x;                                       <span class="c">// ④ 다음 이벤트로 건너뛴다</span>
+}</pre>
+    <p>③에서 대표 x를 구간의 어느 쪽 끝으로 잡을지는 앵커가 정합니다. 왼쪽 앵커이면 위 예의 대표 x는 0, 12, 13, 19, 46이고, 오른쪽 앵커이면 11, 12, 18, 45, 53입니다. 같은 구간 안에서는 결과가 같으므로, 붙이려는 쪽에 가장 가까운 x만 후보로 삼으면 충분합니다.</p>
+    <p><code>on_x</code>는 그 x에서 가장 이른 입고 시각을 구해 후보를 만드는 콜백입니다(<code>scan_y</code>, <span class="mono">placement_scan.rs:260</span>). 가능한 시각이 없으면 그 구간은 후보를 내지 않습니다.</p>
+  </section>
+
+  <!-- ================= 4부 ================= -->
+  <div class="part">4부 · 상태에서 금지 입고 시각 구간으로</div>
+
+  <section>
+    <h2>기존 블록 하나가 막는 입고 시각</h2>
+    <p>1장의 예를 그대로 이어 갑니다. 기존 블록 B가 10일에 들어와 30일에 나가고(a = 10, b = 30), 새 블록의 작업 기간은 P = 8입니다. 새 블록이 B와 함께 있게 되는 입고 시각은 ol = 10 − 8 + 1 = 3부터 or = 30 − 1 = 29까지입니다. 2일 이하에 넣으면 B가 오기 전에 나가고, 30일 이후에 넣으면 B가 나간 뒤입니다. 그러므로 B 때문에 막힐 수 있는 입고 시각은 3~29 안에만 있습니다. 그 안에서 실제로 무엇이 막히는지를 상태가 정합니다.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 300" role="img" aria-label="가로축이 새 블록의 입고 시각인 시간축 그림. 기존 블록 B는 10일부터 30일까지 머문다. 상태 0은 금지 구간 없음, 상태 2는 3에서 10과 22에서 29가 금지이고 11에서 21이 가능, 상태 1과 3은 3에서 29 전체가 금지.">
+        <text x="20" y="18" font-size="12" class="t-muted">가로축: 날짜. 아래 네 줄에서는 새 블록의 입고 시각 e (작업 기간 P = 8)</text>
+        <!-- scale: px = 150 + 15*t -->
+        <g class="s-muted" stroke-width=".5">
+          <line x1="195" y1="28" x2="195" y2="252"/><line x1="300" y1="28" x2="300" y2="252"/><line x1="480" y1="28" x2="480" y2="252"/><line x1="600" y1="28" x2="600" y2="252"/>
+        </g>
+        <text x="16" y="50" font-size="12" fill="currentColor">기존 블록 B의 체류</text>
+        <rect x="300" y="36" width="300" height="20" class="f-steel" stroke-width="1.2"/>
+        <text x="450" y="51" font-size="12" fill="currentColor" text-anchor="middle">10일 입고 ~ 30일 출고</text>
+        <text x="16" y="84" font-size="12" fill="currentColor">B와 겹치는 e</text>
+        <line x1="195" y1="80" x2="600" y2="80" class="s-line" stroke-width="1.5"/>
+        <line x1="195" y1="74" x2="195" y2="86" class="s-line" stroke-width="1.5"/><line x1="600" y1="74" x2="600" y2="86" class="s-line" stroke-width="1.5"/>
+        <text x="397" y="74" font-size="11" fill="currentColor" text-anchor="middle">ol = 3 ~ or = 29</text>
+
+        <g font-size="11" fill="currentColor">
+          <text x="16" y="118">상태 0 서로 안 가림</text>
+          <text x="16" y="154">상태 2 새 블록만 가림</text>
+          <text x="16" y="190">상태 1 B만 가림</text>
+          <text x="16" y="226">상태 3 서로 가림</text>
+        </g>
+        <!-- state 0 -->
+        <line x1="150" y1="114" x2="690" y2="114" class="s-ok" stroke-width="3"/>
+        <text x="420" y="108" font-size="11" class="t-ok" text-anchor="middle">금지 구간 없음</text>
+        <!-- state 2: forbid 3..10 (195..315), 22..29 (480..600) -->
+        <line x1="150" y1="150" x2="690" y2="150" class="s-ok" stroke-width="3"/>
+        <rect x="195" y="141" width="120" height="18" class="f-crane" stroke-width="1.2"/>
+        <rect x="480" y="141" width="120" height="18" class="f-crane" stroke-width="1.2"/>
+        <text x="255" y="154" font-size="11" fill="currentColor" text-anchor="middle">3 ~ 10 금지</text>
+        <text x="540" y="154" font-size="11" fill="currentColor" text-anchor="middle">22 ~ 29 금지</text>
+        <text x="397" y="144" font-size="11" class="t-ok" text-anchor="middle">11 ~ 21 가능</text>
+        <!-- state 1 -->
+        <line x1="150" y1="186" x2="690" y2="186" class="s-ok" stroke-width="3"/>
+        <rect x="195" y="177" width="405" height="18" class="f-crane" stroke-width="1.2"/>
+        <text x="397" y="190" font-size="11" fill="currentColor" text-anchor="middle">3 ~ 29 금지 (가능한 범위 23 ~ 9 가 비어 있음)</text>
+        <!-- state 3 -->
+        <line x1="150" y1="222" x2="690" y2="222" class="s-ok" stroke-width="3"/>
+        <rect x="195" y="213" width="405" height="18" class="f-crane" stroke-width="1.2"/>
+        <text x="397" y="226" font-size="11" fill="currentColor" text-anchor="middle">3 ~ 29 금지</text>
+        <!-- axis -->
+        <line x1="150" y1="252" x2="700" y2="252" class="s-line" stroke-width="1.5"/>
+        <g font-size="11" class="t-muted" text-anchor="middle">
+          <text x="150" y="268">0</text><text x="195" y="268">3</text><text x="300" y="268">10</text><text x="322" y="282">11</text>
+          <text x="480" y="268">22</text><text x="600" y="268">30</text><text x="690" y="268">36</text>
+        </g>
+        <g class="s-line" stroke-width="1">
+          <line x1="150" y1="252" x2="150" y2="257"/><line x1="195" y1="252" x2="195" y2="257"/><line x1="300" y1="252" x2="300" y2="257"/>
+          <line x1="315" y1="252" x2="315" y2="272"/><line x1="480" y1="252" x2="480" y2="257"/><line x1="600" y1="252" x2="600" y2="257"/><line x1="690" y1="252" x2="690" y2="257"/>
+        </g>
+        <text x="20" y="296" font-size="11" class="t-muted">녹색 선: 넣을 수 있는 입고 시각 · 주황 막대: 금지 입고 시각 구간(양 끝 포함) · 하루 = 15px</text>
+      </svg>
+      </div>
+      <figcaption>1장의 예(B는 10~30일, 새 블록 P = 8)를 상태별로 그린 것입니다. 금지 구간은 어느 상태에서든 3~29 안에 있고, 많아야 두 개입니다. 설명을 위해 고른 숫자이며 실제 데이터의 예는 아래 표에 있습니다.</figcaption>
+    </figure>
+<pre><span class="c">// src/solver/placement_scan.rs:554  forbidden_interval_set() (변수 이름만 풀어 씀)</span>
+if !new_old_hit &amp;&amp; !old_new_hit { return [];           }   <span class="c">// 상태 0: 막는 것 없음</span>
+if  new_old_hit &amp;&amp;  old_new_hit { return [(ol, or)];   }   <span class="c">// 상태 3: 겹치는 시각 전부 금지</span>
+
+let (allow_l, allow_r) = if !new_old_hit {                  <span class="c">// 상태 2: 새 블록만 기존 블록을 가림</span>
+    ((a + 1).max(ol), (b - P - 1).min(or))                  <span class="c">//   a &lt; e  그리고  e + P &lt; b</span>
+} else {                                                    <span class="c">// 상태 1: 기존 블록만 새 블록을 가림</span>
+    ((b - P + 1).max(ol), (a - 1).min(or))                  <span class="c">//   e &lt; a  그리고  b &lt; e + P</span>
+};
+if allow_l &gt; allow_r { return [(ol, or)]; }                 <span class="c">// 함께 있을 방법이 없으면 전부 금지</span>
+<span class="c">// 그렇지 않으면 [ol, or] 에서 [allow_l, allow_r] 를 뺀 양쪽 조각이 금지 구간</span>
+if ol &lt; allow_l { result.push((ol, allow_l - 1)); }
+if allow_r &lt; or { result.push((allow_r + 1, or)); }</pre>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>상태</th><th>함께 있으려면</th><th>함께 있을 수 있는 e</th><th>B가 10~30, P = 8일 때 금지 구간</th></tr></thead>
+      <tbody>
+        <tr><td>0</td><td>조건 없음</td><td>전부</td><td>없음</td></tr>
+        <tr><td>2 새 블록만 가림</td><td>새 블록의 기간이 기존 블록의 기간 안에</td><td><span class="mono">a + 1 ≤ e ≤ b − P − 1</span> → 11 ~ 21</td><td>3 ~ 10, 22 ~ 29</td></tr>
+        <tr><td>1 기존 블록만 가림</td><td>기존 블록의 기간이 새 블록의 기간 안에</td><td><span class="mono">b − P + 1 ≤ e ≤ a − 1</span> → 23 ~ 9 (없음)</td><td>3 ~ 29</td></tr>
+        <tr><td>3 서로 가림</td><td>불가능</td><td>없음</td><td>3 ~ 29</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>상태 1에서 가능한 범위가 비지 않는 경우도 있습니다. 기존 블록이 새 블록보다 짧게 머물 때입니다. 예를 들어 기존 블록이 10~14일이고 P = 8이면 겹치는 시각은 3~13이고, 가능한 범위는 14 − 8 + 1 = 7부터 10 − 1 = 9까지입니다. 금지 구간은 3~6과 10~13 두 개가 됩니다. 새 블록이 8일에 들어와 16일에 나가면 그 사이에 기존 블록이 들어왔다 나갑니다. 삽입 시점에 이미 놓여 있는 블록이 새 블록보다 나중에 들어오는 상황은, 블록을 빼고 다시 넣는 SA 단계에서 흔합니다.</p>
+
+    <h3>양 끝을 하루씩 줄이는 이유</h3>
+    <p>상태 2를 공식 규칙대로 쓰면 <span class="mono">a ≤ e</span>이고 <span class="mono">e + P ≤ b</span>, 즉 10 ≤ e ≤ 22입니다. 코드는 11 ≤ e ≤ 21로 양쪽을 하루씩 줄였습니다. 줄어든 두 값은 같은 날에 같은 종류의 작업이 둘 생기는 경우입니다.</p>
+    <ul class="plain">
+      <li>e = 10이면 B와 새 블록이 같은 날 ENTRY입니다. 새 블록이 B를 가리므로 B가 먼저 내려와야 합니다. 출력 목록에서 B의 ENTRY가 앞에 적혀 있어야만 유효합니다.</li>
+      <li>e = 22이면 새 블록과 B가 같은 날(30일) EXIT입니다. 새 블록이 먼저 나가야 하므로 새 블록의 EXIT가 앞에 적혀 있어야만 유효합니다.</li>
+    </ul>
+    <p>이 해법은 같은 날, 같은 종류의 작업 사이의 순서를 관리하지 않습니다. 출력을 만드는 코드는 일정 배열의 순서대로 EXIT를 모두 넣고 그다음 ENTRY를 모두 넣을 뿐입니다(<code>schedule_to_solution</code>, <span class="mono">src/solver/output.rs:11</span>). 그래서 순서에 따라 유효성이 갈리는 경우를 처음부터 금지해 두었습니다. 탐색 공간을 조금 포기하고, 무효한 해가 나올 가능성을 없앤 선택입니다.</p>
+    <p>반면 상태 3의 경계는 줄이지 않습니다. e = 30(B가 나가는 날 입고)과 e = 2(새 블록이 나가는 날 B가 입고)는 허용됩니다. 이 둘은 EXIT와 ENTRY가 같은 날 만나는 경우이고, EXIT가 항상 먼저 처리된다는 것이 규칙으로 보장되기 때문입니다.</p>
+    <p class="src">하루씩 줄인 이유는 코드에 주석으로 적혀 있지 않습니다. 식과 <span class="mono">output.rs</span>의 동작을 맞춰 보고 제가 내린 해석입니다. 보고서는 "EXIT를 ENTRY보다 먼저 출력한다"고만 적고 있습니다.</p>
+  </section>
+
+  <section>
+    <h2>미리 계산해 두기: 블록 × 상태 → 구간</h2>
+    <p>금지 구간은 기존 블록의 체류 기간과 상태로만 정해지고, x나 y와는 무관합니다. 그래서 스캐너를 만들 때 <strong>모든 기존 블록의 모든 상태에 대해 한 번만</strong> 계산해 둡니다(<code>build_forbidden_slot_precompute</code>, <span class="mono">placement_scan.rs:594</span>). 이후 행을 몇 개 훑든 다시 계산하지 않습니다.</p>
+<pre><span class="c">// src/solver/placement_scan.rs:67</span>
+struct ForbiddenSlotPrecompute {
+    intervals: Vec&lt;Interval&gt;,      <span class="c">// 모든 금지 구간을 (왼쪽 끝, 오른쪽 끝) 순으로 정렬한 배열. 배열의 위치가 "슬롯 번호"</span>
+    states: Vec&lt;[SlotSet; 4]&gt;,     <span class="c">// states[기존 블록][상태 번호] = 그 상태일 때 켜야 하는 슬롯 번호들 (0~2개)</span>
+}</pre>
+    <p>블록 78을 베이 2에 넣는 예에서 실제로 만들어지는 내용입니다. 시간상 남은 기존 블록 4개에서 구간 13개가 나옵니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>기존 블록 (a ~ b)</th><th>상태 1</th><th>상태 2</th><th>상태 3</th></tr></thead>
+      <tbody>
+        <tr><td>49 (11 ~ 23)</td><td>21 ~ 22</td><td>21 ~ 22</td><td>21 ~ 22</td></tr>
+        <tr><td>45 (18 ~ 23)</td><td>21 ~ 22</td><td>21 ~ 22</td><td>21 ~ 22</td></tr>
+        <tr><td>46 (19 ~ 27)</td><td>21 ~ 26</td><td>21 ~ 26</td><td>21 ~ 26</td></tr>
+        <tr><td>40 (21 ~ 29)</td><td>21 ~ 28</td><td>21 ~ 21, 23 ~ 28</td><td>21 ~ 28</td></tr>
+      </tbody>
+    </table>
+    </div>
+<pre>intervals = [ (21,21),  (21,22) × 6,  (21,26) × 3,  (21,28) × 2,  (23,28) ]
+슬롯 번호      0         1 ~ 6         7 ~ 9         10 ~ 11       12
+
+states[블록 40][상태 2] = { 슬롯 0, 슬롯 12 }     <span class="c">// (21,21) 과 (23,28)</span>
+states[블록 40][상태 3] = { 슬롯 10 또는 11 }     <span class="c">// (21,28)</span>
+states[어느 블록][상태 0] = { }                    <span class="c">// 항상 비어 있음</span></pre>
+    <p>대부분의 칸에서 상태 1, 2가 상태 3과 같습니다. 새 블록이 21일 이후에만 들어올 수 있어서, 이미 와 있는 블록과 "기간이 포함되는" 관계를 만들 여지가 거의 없기 때문입니다. 블록 40만 예외입니다. 40은 21~29일의 8일 동안 있고 새 블록은 6일이므로, 22일에 들어가 28일에 나오면 40의 기간 안에 쏙 들어갑니다. 그래서 상태 2에서 22일 하루가 열려 있습니다.</p>
+    <p>같은 구간이 여러 번 들어 있어도 합치지 않습니다. 슬롯은 "누구의 어느 상태가 만든 구간인가"를 구별해야 따로 켜고 끌 수 있기 때문입니다.</p>
+  </section>
+
+  <section>
+    <h2>지금 켜져 있는 구간: 비트셋</h2>
+    <p>훑는 동안 관리하는 것은 "지금 x에서 유효한 금지 구간이 어느 슬롯들인가"입니다. 슬롯마다 1비트를 둡니다. 이렇게 원소마다 1비트로 "들어 있다/없다"를 적어 집합을 나타내는 자료구조를 <strong>비트셋</strong>이라고 합니다. 64개를 정수 하나에 담으므로 켜고 끄는 일이 비트 연산 한 번이고, 켜진 것만 골라 번호 순으로 꺼내기도 쉽습니다.</p>
+<pre><span class="c">// src/solver/placement_scan.rs:72</span>
+struct ActiveIntervalSlots {
+    words: Vec&lt;u64&gt;,       <span class="c">// 슬롯 하나당 1비트. 64개씩 한 단어</span>
+    summary: Vec&lt;u64&gt;,     <span class="c">// words 의 단어 하나당 1비트. 그 단어가 0이 아니면 1</span>
+}</pre>
+    <p>x에서 이벤트가 생기면, 영향받은 기존 블록에 대해 세 단계를 거칩니다(<span class="mono">placement_scan.rs:395~414</span>). ① 그 블록의 지금 상태가 켜 둔 슬롯을 끕니다. ② 이벤트를 적용해 상태를 바꿉니다. ③ 새 상태의 슬롯을 켭니다. 한 x에 같은 블록의 이벤트가 여러 개 있어도 ①과 ③은 한 번씩만 합니다. 위 예에서 x = 13의 이벤트(40의 <code>old_new</code> +1)는 40을 상태 0에서 2로 바꾸므로 슬롯 0과 12가 켜집니다. x = 19에서는 그 둘을 끄고 (21,28)의 슬롯 하나를 켭니다.</p>
+    <p>이렇게 해 두면 켜진 구간을 <strong>슬롯 번호 순으로</strong> 꺼내는 것만으로 왼쪽 끝이 작은 순서가 됩니다. <code>intervals</code>를 미리 정렬해 두었기 때문입니다. 훑는 도중에 정렬을 다시 할 필요가 없습니다. 꺼낼 때는 <code>summary</code>에서 0이 아닌 단어를 찾고, 그 단어에서 가장 낮은 1비트를 <code>trailing_zeros</code>로 찾아 지우는 것을 반복합니다(<code>ActiveIntervalIter</code>, <span class="mono">placement_scan.rs:139</span>). 켜진 비트 수만큼만 일합니다.</p>
+  </section>
+
+  <section>
+    <h2>가장 이른 가능 시각 찾기</h2>
+<pre><span class="c">// src/solver/placement_scan.rs:169</span>
+pub(super) fn first_feasible_time(self, min_t: i64, max_t: i64) -&gt; Option&lt;i64&gt; {
+    let mut t = min_t;                                    <span class="c">// 가장 이른 시각에서 출발</span>
+    for (left, right) in self.active.iter(self.intervals) {   <span class="c">// 켜진 금지 구간을 왼쪽 끝 순으로</span>
+        if right &lt; t { continue; }                        <span class="c">// 이미 지나간 구간</span>
+        if left &gt; t { return Some(t); }                   <span class="c">// t 는 어느 구간에도 안 걸린다 → 답</span>
+        t = right.checked_add(1)?;                        <span class="c">// t 가 이 구간 안 → 구간 바로 다음 날로</span>
+        if t &gt; max_t { return None; }
+    }
+    (t &lt;= max_t).then_some(t)
+}</pre>
+    <p><code>left &gt; t</code>에서 바로 답을 낼 수 있는 이유는 구간이 왼쪽 끝 순으로 나오기 때문입니다. 뒤에 나올 구간은 모두 왼쪽 끝이 지금 것 이상이므로 t를 덮을 수 없습니다. 날짜를 하루씩 세지 않고 구간 단위로 건너뛰므로, 계산량은 켜진 구간 수에만 비례하고 일정이 며칠짜리인지와는 무관합니다.</p>
+    <p>예제의 다섯 구간을 모두 따라가 보면 이렇습니다. <code>min_t</code> = 21입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>x 구간</th><th>0이 아닌 상태</th><th>켜진 금지 구간</th><th><code>first_feasible_time</code>의 진행</th><th>입고 → 출고</th><th>지연</th></tr></thead>
+      <tbody>
+        <tr><td>0 ~ 11</td><td>49: 상태 3</td><td>(21,22)</td><td>t = 21 → 구간 안 → 23 → 끝</td><td>23 → 29</td><td>0</td></tr>
+        <tr><td>12</td><td>없음</td><td>없음</td><td>t = 21 그대로</td><td>21 → 27</td><td>0</td></tr>
+        <tr><td>13 ~ 18</td><td>40: 상태 2</td><td>(21,21), (23,28)</td><td>t = 21 → 22 → 다음 구간의 왼쪽 끝 23 &gt; 22 → 답 22</td><td>22 → 28</td><td>0</td></tr>
+        <tr><td>19 ~ 45</td><td>40: 상태 3</td><td>(21,28)</td><td>t = 21 → 29 → 끝</td><td>29 → 35</td><td>6</td></tr>
+        <tr><td>46 ~ 53</td><td>없음</td><td>없음</td><td>t = 21 그대로</td><td>21 → 27</td><td>0</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>13~18 구간이 공간과 시간이 묶여 있다는 것을 잘 보여 줍니다. 그 자리는 21일에는 못 들어가고(40과 같은 날 ENTRY), 23일 이후에도 못 들어가고(40보다 늦게 나가게 됨), 22일에만 들어갈 수 있습니다. 이런 답을 날짜를 하나씩 시험하지 않고 구간 두 개를 건너는 것으로 얻습니다.</p>
+    <p class="src">위 표의 다섯 결과는 파이썬으로 옮긴 스캔으로 계산했고, 같은 행의 x 54개 각각에 대해 날짜를 하루씩 올려 가며 규칙을 직접 확인한 결과와 일치합니다. 블록 78의 베이 2 전체(방향 8개, 행 102개)에서도 일치했습니다. 이 검증은 스캔 로직에 대한 것이고, 금지 x 구간 자체는 4장의 격자 계산을 옮긴 제 구현에서 나온 값입니다.</p>
+  </section>
+
+  <!-- ================= 5부 ================= -->
+  <div class="part">5부 · 후보 평가와 선택</div>
+
+  <section>
+    <h2>후보를 비교하는 순서</h2>
+    <p>한 행 훑기가 내놓는 후보마다 ΔF를 계산합니다. 베이가 정해진 상태이므로 달라지는 것은 지연뿐입니다.</p>
+<pre><span class="c">// src/solver/insert.rs:150  scan_y 에 넘기는 콜백</span>
+let tardiness = (scheduled.exit_time - block.due_date).max(0);
+let score_delta = problem.weights.w1 * tardiness as f64 + delta_obj23;
+best_score_delta = best_score_delta.min(score_delta);</pre>
+    <p>두 후보의 우열은 네 단계로 가립니다(<code>insert_candidate_cmp</code>, <span class="mono">insert.rs:77</span>).</p>
+    <ol class="plain">
+      <li><strong>ΔF가 작은 쪽.</strong></li>
+      <li>같으면 <strong>입고 시각이 이른 쪽.</strong> 납기 안이라면 21일에 넣든 23일에 넣든 ΔF는 0으로 같습니다. 그때는 일찍 넣고 일찍 빼는 쪽을 고릅니다. 뒤에 올 블록을 위해 시간 축의 앞쪽을 채우는 것입니다.</li>
+      <li>그래도 같으면 <strong>앵커 모서리에 가까운 쪽.</strong> 아래에서 설명합니다.</li>
+      <li>마지막은 블록 번호인데, 한 번의 삽입에서는 모든 후보가 같은 블록이라 의미가 없습니다.</li>
+    </ol>
+    <p>한 구간에서 가장 이른 입고 시각만 후보로 삼아도 되는 이유가 여기 있습니다. 같은 자리에서 입고를 늦추면 지연은 그대로이거나 늘어나고, 2번 기준에서도 불리합니다. 더 늦은 시각이 이길 수 없습니다.</p>
+  </section>
+
+  <section>
+    <h2>앵커: 어느 모서리로 붙일 것인가</h2>
+    <div class="note">
+      <p><strong>배경: bottom-left 배치</strong></p>
+      <p>채우기 문제에서 가장 널리 쓰이는 배치 규칙은 물건을 하나씩, 들어가는 자리 중 가장 아래·가장 왼쪽에 놓는 bottom-left입니다. 한쪽 구석부터 빈틈없이 쌓아 가면 남는 공간이 반대쪽에 한 덩어리로 모여서, 뒤에 오는 물건이 쓰기 좋다는 경험칙입니다. 이 해법의 앵커는 그 "구석"을 네 모서리 중에서 고를 수 있게 한 것입니다. 다만 여기서는 구석으로 모는 것이 1순위가 아니라, ΔF와 입고 시각이 같은 후보들 사이의 동점 처리로만 쓰입니다.</p>
+    </div>
+    <p>앵커는 베이의 네 모서리 중 하나입니다. 워커 4개가 서로 다른 모서리를 기본으로 갖습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>워커</th><th>기본 앵커</th><th>3번 기준에서 좋은 후보</th><th>한 행에서 구간의 대표 x</th></tr></thead>
+      <tbody>
+        <tr><td>0</td><td>왼쪽 아래</td><td>바운딩 박스의 <strong>오른쪽 끝</strong>이 작은 것, 같으면 위쪽 끝이 작은 것</td><td>왼쪽 끝</td></tr>
+        <tr><td>1</td><td>오른쪽 아래</td><td>바운딩 박스의 <strong>왼쪽 끝</strong>이 큰 것, 같으면 위쪽 끝이 작은 것</td><td>오른쪽 끝</td></tr>
+        <tr><td>2</td><td>왼쪽 위</td><td>오른쪽 끝이 작은 것, 같으면 아래쪽 끝이 큰 것</td><td>왼쪽 끝</td></tr>
+        <tr><td>3</td><td>오른쪽 위</td><td>왼쪽 끝이 큰 것, 같으면 아래쪽 끝이 큰 것</td><td>오른쪽 끝</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>"모서리에 가깝다"는 것은 거리를 재는 것이 아닙니다. 블록을 놓았을 때의 바운딩 박스에서 <strong>모서리 반대쪽 변</strong>의 좌표를 비교합니다(<code>anchor_bbox_cmp</code>, <span class="mono">insert.rs:19</span>). 왼쪽 아래 앵커라면 블록의 오른쪽 끝이 가장 왼쪽에 오는 배치가 1순위입니다. 블록이 차지하고 남기는 오른쪽 빈 공간을 가장 넓게 남기는 배치라는 뜻입니다. 방향이 달라 폭이 다른 후보끼리도 이 기준으로 공평하게 비교됩니다.</p>
+    <p>가로가 먼저이고 세로는 가로가 완전히 같을 때만 봅니다. 그리고 행은 무작위로 섞어 일부만 훑으므로(2부), 삽입에서 위·아래 구분의 영향은 좌·우 구분보다 약합니다. 좌·우는 두 곳에 영향을 줍니다. 한 행에서 구간의 어느 쪽 끝을 대표 x로 삼을지(3부), 그리고 이 동점 처리입니다.</p>
+<pre><span class="c">// src/solver/insert.rs:40  sample_insert_anchor()</span>
+if rng.next_f64() &gt;= params.anchor_randomness {       <span class="c">// 확률 0.8: 워커의 기본 앵커</span>
+    return primary_anchor;
+}
+let mut index = rng.gen_range(0, ANCHORS.len() - 1);  <span class="c">// 확률 0.2: 나머지 셋 중 하나를 같은 확률로</span>
+if index &gt;= primary_index { index += 1; }
+ANCHORS[index]</pre>
+    <p>삽입할 때마다 앵커를 새로 뽑습니다. 80%는 그 워커의 기본 앵커이고, 20%는 나머지 세 모서리 중 하나입니다(각 6.7%). 워커마다 블록을 다른 쪽으로 몰아 쌓게 해서 네 워커가 구조가 다른 해를 탐색하게 하고, 가끔 다른 모서리를 섞어 한 워커 안에서도 변화를 줍니다.</p>
+    <p class="src">워커와 앵커의 대응은 <span class="mono">params/default.yaml:24</span>의 <code>worker_primary_anchors</code>이고, 워커 번호를 목록 길이로 나눈 나머지로 고릅니다(<span class="mono">src/params.rs:83</span>). 위·아래 구분은 Shift 이웃에서 y를 어느 쪽으로 움직여 볼지도 정합니다(<span class="mono">src/solver/neighbors.rs:116</span>, 7장).</p>
+  </section>
+
+  <section>
+    <h2>마지막 선택: 동점 후보 중 위 4개에서 확률적으로</h2>
+<pre><span class="c">// src/solver/insert.rs:186</span>
+candidates.retain(|candidate| candidate.score_delta &lt;= best_score_delta + 1e-9);   <span class="c">// ① 최소 ΔF와 동점인 것만</span>
+if candidates.is_empty() { return None; }
+candidates.sort_by(|a, b| insert_candidate_cmp(a, b, anchor));                     <span class="c">// ② 입고 시각, 앵커 순으로 정렬</span>
+candidates.truncate(params.candidate_top_k);                                       <span class="c">// ③ 위 4개만</span>
+let selected = candidates.iter()
+    .position(|_| rng.next_f64() &lt; params.candidate_select_p)                      <span class="c">// ④ 앞에서부터 확률 0.7로 채택</span>
+    .unwrap_or(0);                                                                 <span class="c">//    끝까지 채택이 안 되면 첫째</span></pre>
+    <p>후보 목록에는 (베이, 방향)마다 최선 하나씩이 들어 있습니다. ①에서 ΔF가 조금이라도 나쁜 후보는 모두 버립니다. 그러므로 확률적으로 고르는 것은 <strong>ΔF가 똑같은 후보들 사이에서만</strong>입니다. 무작위성은 목적 함수 값을 희생하지 않고, 같은 값인 배치 중에서 다양성을 만드는 데만 쓰입니다.</p>
+    <p>④는 첫째 후보부터 차례로 "확률 0.7로 이것을 고른다"를 시도하는 방식입니다. 후보가 4개일 때 각각이 뽑힐 확률은 다음과 같습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>순위</th><th>계산</th><th>확률</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>0.7 + 0.3⁴ (넷 다 채택이 안 됐을 때도 첫째)</td><td>70.8%</td></tr>
+        <tr><td>2</td><td>0.3 × 0.7</td><td>21.0%</td></tr>
+        <tr><td>3</td><td>0.3² × 0.7</td><td>6.3%</td></tr>
+        <tr><td>4</td><td>0.3³ × 0.7</td><td>1.9%</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 262" role="img" aria-label="베이 2에 블록 78을 넣을 때 왼쪽 아래 앵커에서의 위 네 후보를 베이의 왼쪽 절반에 하나씩 그린 네 칸. 바운딩 박스의 오른쪽 끝이 18.9, 20.1, 25.0, 26.0 순으로 커진다. 아래에는 네 후보가 뽑힐 확률 70.8, 21.0, 6.3, 1.9 퍼센트가 막대로 그려져 있다.">
+        <defs>
+          <clipPath id="ch5clip"><rect x="0" y="0" width="165" height="120"/></clipPath>
+          <g id="ch5olds" class="f-steel" stroke-width="2" fill-opacity=".5" stroke-opacity=".7">
+            <polygon points="20.0,270.0 25.3,194.3 32.8,114.0 93.1,113.8 82.4,188.8 135.7,193.8 75.8,269.7"/>
+            <polygon points="150.0,130.0 151.3,99.8 111.8,94.2 102.8,94.2 82.7,77.7 112.7,32.5 150.6,36.4 188.7,40.8 191.1,102.0 190.8,130.4"/>
+            <polygon points="440.0,70.0 346.2,72.1 260.5,68.3 254.9,135.3 156.0,131.4 248.0,186.4 337.0,188.9 339.2,131.2 435.1,131.7"/>
+            <polygon points="470.0,150.0 470.4,253.7 430.1,255.8 356.1,258.4 282.9,263.7 358.1,159.9 431.9,151.5"/>
+          </g>
+        </defs>
+        <text x="20" y="20" font-size="12" fill="currentColor"><tspan font-weight="700">1순위</tspan> · 방향 1 · (17, 1)</text>
+        <g transform="translate(20,30)">
+          <rect x="0" y="0" width="165" height="120" class="f-bay" stroke-width="1.2"/>
+          <g clip-path="url(#ch5clip)"><g transform="scale(.5) translate(-20,-30)">
+            <use href="#ch5olds"/>
+            <polygon points="190.0,260.0 177.7,246.0 151.9,209.9 124.0,180.6 98.7,153.0 135.3,119.8 160.5,145.8 178.8,164.6 209.1,240.6" class="f-crane" stroke-width="2.5" fill-opacity=".55"/>
+            <polygon points="190.0,260.0 177.7,246.0 151.9,209.9 137.9,195.2 175.3,160.9 178.8,164.6 209.1,240.6" class="f-crane" stroke-width="2.5"/>
+          </g></g>
+          <line x1="94.5" y1="0" x2="94.5" y2="128" class="s-crane" stroke-width="1.2" stroke-dasharray="4 3"/>
+          <text x="94.5" y="142" font-size="11" class="t-crane" text-anchor="middle">오른쪽 끝 18.9</text>
+        </g>
+        <text x="195" y="20" font-size="12" fill="currentColor"><tspan font-weight="700">2순위</tspan> · 방향 5 · (11, 16)</text>
+        <g transform="translate(195,30)">
+          <rect x="0" y="0" width="165" height="120" class="f-bay" stroke-width="1.2"/>
+          <g clip-path="url(#ch5clip)"><g transform="scale(.5) translate(-20,-30)">
+            <use href="#ch5olds"/>
+            <polygon points="130.0,110.0 142.3,124.0 168.1,160.1 196.0,189.4 221.3,217.0 184.7,250.2 159.5,224.2 141.2,205.4 110.9,129.4" class="f-crane" stroke-width="2.5" fill-opacity=".55"/>
+            <polygon points="130.0,110.0 142.3,124.0 168.1,160.1 182.1,174.8 144.7,209.1 141.2,205.4 110.9,129.4" class="f-crane" stroke-width="2.5"/>
+          </g></g>
+          <line x1="100.7" y1="0" x2="100.7" y2="128" class="s-crane" stroke-width="1.2" stroke-dasharray="4 3"/>
+          <text x="100.7" y="142" font-size="11" class="t-crane" text-anchor="middle">오른쪽 끝 20.1</text>
+        </g>
+        <text x="370" y="20" font-size="12" fill="currentColor"><tspan font-weight="700">3순위</tspan> · 방향 2 · (25, 0)</text>
+        <g transform="translate(370,30)">
+          <rect x="0" y="0" width="165" height="120" class="f-bay" stroke-width="1.2"/>
+          <g clip-path="url(#ch5clip)"><g transform="scale(.5) translate(-20,-30)">
+            <use href="#ch5olds"/>
+            <polygon points="270.0,270.0 251.4,268.8 207.6,261.5 167.2,260.5 129.8,258.9 132.2,209.5 168.4,210.1 194.6,210.4 269.8,242.8" class="f-crane" stroke-width="2.5" fill-opacity=".55"/>
+            <polygon points="270.0,270.0 251.4,268.8 207.6,261.5 187.4,261.0 189.6,210.4 194.6,210.4 269.8,242.8" class="f-crane" stroke-width="2.5"/>
+          </g></g>
+          <line x1="125.0" y1="0" x2="125.0" y2="128" class="s-crane" stroke-width="1.2" stroke-dasharray="4 3"/>
+          <text x="125.0" y="142" font-size="11" class="t-crane" text-anchor="middle">오른쪽 끝 25.0</text>
+        </g>
+        <text x="545" y="20" font-size="12" fill="currentColor"><tspan font-weight="700">4순위</tspan> · 방향 6 · (12, 7)</text>
+        <g transform="translate(545,30)">
+          <rect x="0" y="0" width="165" height="120" class="f-bay" stroke-width="1.2"/>
+          <g clip-path="url(#ch5clip)"><g transform="scale(.5) translate(-20,-30)">
+            <use href="#ch5olds"/>
+            <polygon points="140.0,200.0 158.6,201.2 202.4,208.5 242.8,209.5 280.2,211.1 277.8,260.5 241.6,259.9 215.4,259.6 140.2,227.2" class="f-crane" stroke-width="2.5" fill-opacity=".55"/>
+            <polygon points="140.0,200.0 158.6,201.2 202.4,208.5 222.6,209.0 220.4,259.6 215.4,259.6 140.2,227.2" class="f-crane" stroke-width="2.5"/>
+          </g></g>
+          <line x1="130.1" y1="0" x2="130.1" y2="128" class="s-crane" stroke-width="1.2" stroke-dasharray="4 3"/>
+          <text x="130.1" y="142" font-size="11" class="t-crane" text-anchor="middle">오른쪽 끝 26.0</text>
+        </g>
+        <text x="20" y="200" font-size="12" fill="currentColor">네 후보가 뽑힐 확률 (candidate_select_p = 0.7)</text>
+        <rect x="20" y="208" width="425" height="20" class="f-crane" stroke-width="1"/>
+        <rect x="445" y="208" width="126" height="20" class="f-steel" stroke-width="1"/>
+        <rect x="571" y="208" width="38" height="20" class="f-hull" stroke-width="1"/>
+        <rect x="609" y="208" width="11" height="20" class="f-bay" stroke-width="1"/>
+        <g font-size="12" fill="currentColor" text-anchor="middle">
+          <text x="232" y="223">1순위 70.8%</text><text x="508" y="223">2순위 21.0%</text>
+          <text x="586" y="244" font-size="11">3순위 6.3%</text><text x="650" y="244" font-size="11">4순위 1.9%</text>
+        </g>
+        <text x="20" y="258" font-size="11" class="t-muted">각 칸은 베이 2의 왼쪽 절반(x = 0~33) · 옅은 파랑: 기존 블록 49, 45, 46, 40 · 좌표 1 = 5px</text>
+      </svg>
+      </div>
+      <figcaption>블록 78을 베이 2에 넣을 때 실제로 계산된 후보입니다(행을 섞지 않고 전부 본 경우). 방향 8개의 최선 후보가 모두 ΔF = 0, 입고 21일로 동점이어서 앵커 기준으로 순위가 갈립니다. 그림은 왼쪽 아래 앵커에서의 위 4개이고, 점선이 비교에 쓰이는 값인 바운딩 박스의 오른쪽 끝입니다. 4순위가 3부에서 따라간 행의 x = 12입니다.</figcaption>
+    </figure>
+    <p>네 후보는 방향이 모두 다릅니다. 같은 방향에서 두 자리가 올라오는 일은 없습니다. 방향마다 최선 하나만 남기기 때문입니다. 같은 상황에서 앵커가 오른쪽 아래였다면 순위가 완전히 달라집니다. 그때의 1순위는 방향 4를 오른쪽 벽에 붙인 배치(기준점 (68, 15), 바운딩 박스의 왼쪽 끝 62.0)입니다.</p>
+    <p class="src">솔버의 실제 실행에서는 행을 섞고 일부만 보므로 방향별 최선이 그림과 다를 수 있고, 위 4개의 구성도 실행마다 달라집니다.</p>
+  </section>
+
+  <section>
+    <h2>호출처마다 다른 인자</h2>
+    <p><code>insert_greedy</code>를 부르는 곳은 세 군데입니다. 입고 시각 범위와 <code>original</code>이 다릅니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>호출처</th><th><code>original</code></th><th><code>min_entry_time</code></th><th><code>max_entry_time</code></th></tr></thead>
+      <tbody>
+        <tr><td>확장 <code>extend_schedule</code><br><span class="mono">optimize.rs:361</span></td><td>새 블록: 추상 일정으로 만든 임시 배치<br>다시 넣는 기존 블록: 빼기 전 배치</td><td>R</td><td>제한 없음 (<code>INF</code>)</td></tr>
+        <tr><td>큰 재구성 <code>try_large_reconstruct</code><br><span class="mono">reconstruct.rs:171</span></td><td>빼기 전 배치</td><td>R</td><td>D + (허용되는 최대 지연) − P</td></tr>
+        <tr><td>Move 이웃 <code>try_move_neighbor</code><br><span class="mono">neighbors.rs:207</span></td><td>빼기 전 배치</td><td><code>−INF</code> (결국 R)</td><td>빼기 전의 입고 시각</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <ul class="plain">
+      <li><strong>확장</strong>은 위 한계가 없습니다. 새 블록은 얼마나 늦어지든 반드시 들어가야 하기 때문입니다.</li>
+      <li><strong>큰 재구성</strong>은 SA가 받아들일 수 있는 점수의 상한, 즉 3장에서 본 수락 임계값(<code>accept_threshold</code>)에서 거꾸로 계산합니다. 지금까지 확정된 점수를 빼고 w₁로 나누면 이 블록에 허용되는 최대 지연이 나옵니다. 그보다 늦은 입고는 찾아도 기각될 것이므로 처음부터 범위에서 뺍니다. 범위 안에 자리가 없으면 <code>None</code>이 돌아오고 재구성 전체를 포기합니다(<span class="mono">reconstruct.rs:164~184</span>).</li>
+      <li><strong>Move</strong>는 지금보다 늦어지지 않는 자리만 찾습니다. 찾은 자리가 원래와 완전히 같으면 이웃을 만들지 않습니다.</li>
+    </ul>
+    <p>어느 경우든 아래 한계는 R과 비교해 큰 쪽이 쓰입니다(<span class="mono">insert.rs:97</span>). Shift와 Rotate 이웃은 <code>insert_greedy</code>를 거치지 않고 <code>PlacementXScanner</code>를 직접 써서, 같은 베이의 가까운 행 몇 개만 훑습니다. 큰 재구성과 이웃들은 7장, 확장은 6장에서 다룹니다.</p>
+  </section>
+
+  <section>
+    <h2>추상 일정은 삽입에 어떻게 쓰이는가</h2>
+    <p>2장과 3장은 2단계가 추상 일정에서 읽는 것이 투입 순서와 "추상 일정대로라면 며칠 늦는가"라는 숫자 하나뿐이라고 적었습니다. 그 숫자가 삽입 안에서 쓰이는 자리가 여기입니다. 확장 단계는 새 블록마다 추상 일정으로 임시 배치를 만들어 <code>original</code>로 넘깁니다. 3장 6부에서 본 코드입니다(<span class="mono">src/solver/optimize.rs:289</span>). 베이에는 추상 베이를, 입고 시각에는 추상 입고 시각(R보다 이르면 R)을, 출고 시각에는 거기에 P를 더한 값을 넣고, 방향과 좌표는 의미 없는 0으로 채웁니다.</p>
+    <p>그런데 <code>insert_greedy</code>가 <code>original</code>에서 읽는 필드는 두 개뿐입니다. <code>block_id</code>(<span class="mono">insert.rs:94</span>)와 <code>exit_time</code>(<span class="mono">insert.rs:108</span>)입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>추상 일정의 값</th><th>삽입에서의 쓰임</th></tr></thead>
+      <tbody>
+        <tr><td>추상 베이</td><td><strong>쓰이지 않습니다.</strong> 임시 배치에 담기지만 읽는 코드가 없습니다. 베이는 선호 순으로 돌면서 ΔF로 정합니다.</td></tr>
+        <tr><td>추상 입고 시각</td><td>입고 시각의 범위를 정하지 <strong>않습니다.</strong> 범위는 R부터 제한 없음입니다. 추상 입고 시각보다 일찍 들어가는 것도, 늦게 들어가는 것도 막지 않습니다.</td></tr>
+        <tr><td>추상 지연<br><span class="mono">max(0, 추상 출고 − D)</span></td><td><code>original_tardiness</code>가 됩니다. 2부에서 본 대로, 행을 훑다가 이 값 이하의 지연을 가진 후보가 처음 나오면 그 뒤로 10개 행만 더 보고 멈춥니다.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>즉 삽입에서 추상 일정의 역할은 <strong>"이 정도면 충분하다"의 기준</strong> 하나입니다. 추상 일정이 이 블록을 3일 늦게 넣기로 했다면, 지연 3일 이하인 자리가 보이는 순간부터 탐색을 줄입니다. 추상 일정이 제때 넣기로 했다면, 지연 0인 자리가 나올 때까지는 모든 행을 봅니다. 결과로 나오는 배치 자체는 추상 일정에 묶이지 않습니다.</p>
+    <p>빼고 다시 넣는 블록(재구성, Move, 확장에서 함께 다시 넣는 기존 블록)은 <code>original</code>이 빼기 전의 실제 배치이므로, 기준은 "지금만큼은 좋은 자리"가 됩니다. 추상 일정이 2단계에 주는 큰 영향은 삽입 안이 아니라 밖에 있습니다. 어떤 블록이 몇 번째 호라이즌에 들어오는지를 정하는 투입 순서입니다(2장, 6장).</p>
+  </section>
+
+  <!-- ================= 6부 ================= -->
+  <div class="part">6부 · 왜 빠른가</div>
+
+  <section>
+    <h2>하지 않는 일 세 가지</h2>
+    <ul class="plain">
+      <li><strong>좌표마다 다각형을 겹쳐 보지 않습니다.</strong> 겹침 판정은 블록 쌍과 방향 쌍마다 한 번 격자로 만들어 두고(4장), 삽입에서는 구간을 읽기만 합니다.</li>
+      <li><strong>x마다 계산하지 않습니다.</strong> 금지 구간의 끝점에서만 상태가 바뀌므로 끝점 사이는 한 번만 계산합니다.</li>
+      <li><strong>날마다 계산하지 않습니다.</strong> 기존 블록 하나가 막는 입고 시각은 구간 두 개 이하이고, 가장 이른 가능 시각은 구간을 건너뛰며 찾습니다. 일정 전체를 다시 검증하는 일도 없습니다. 삽입은 새 블록과 기존 블록 사이의 관계만 보면 되고, 기존 블록끼리는 이미 유효하기 때문입니다.</li>
+    </ul>
+    <p>블록 78을 베이 2에 넣는 예에서 실제로 세어 본 숫자입니다(방향 8개, 행 102개를 전부 훑은 경우).</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>세는 것</th><th>개수</th></tr></thead>
+      <tbody>
+        <tr><td>가능한 (방향, x, y)</td><td>5,728</td></tr>
+        <tr><td>여기에 입고 시각 40가지를 곱하면</td><td>229,120</td></tr>
+        <tr><td>스캔이 만든 x 이벤트</td><td>1,444 (행당 평균 14개)</td></tr>
+        <tr><td>스캔이 입고 시각을 계산한 횟수 (구간 수)</td><td>713 (행당 평균 7번)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>빽빽한 일정에서는 양상이 조금 다릅니다. 블록 250개짜리 <span class="mono">prelim_prob_6</span>에서 같은 방식으로 249개를 넣어 둔 뒤 마지막 블록(P = 26)을 베이 2(105 × 20, 블록 98개)에 넣는 경우를 세어 보면, 시간상 남는 기존 블록이 68개이고 행 68개에서 이벤트 17,312개, 구간 4,660개가 나옵니다. 가능한 (방향, x, y)가 6,332개이므로 x를 건너뛰어 아끼는 양은 4분의 1 정도로 줄어듭니다. 이때의 이득은 주로 시간 축에서 나옵니다. 이 블록은 R = 47인데 121일에야 자리가 났고, 그 74일을 하루씩 시험하지 않고 금지 구간을 건너뛰어 찾습니다. 이 일정은 release 순으로 단순하게 쌓은 것이라 지연이 매우 크고, 솔버의 실제 일정은 이보다 훨씬 좋습니다. 기존 블록이 많을 때의 규모를 보이기 위한 숫자입니다.</p>
+    <p>여기에 2부의 두 가지가 더해집니다. 하한 가지치기로 베이 0과 1(합쳐서 34,580개 위치)은 아예 훑지 않았고, 실제 실행에서는 <code>y_buffer</code>가 행 수를 더 줄입니다. 1부에서 센 161만 가지 중 실제로 계산하는 것은 수백 번입니다.</p>
+  </section>
+
+  <section>
+    <h2>보고서의 복잡도 식과 코드의 대응</h2>
+    <p>보고서는 블록 하나를 삽입하는 최악의 계산량을 이렇게 적습니다. n<sub>j</sub>는 베이 j에 이미 놓인 블록 수, W<sub>j</sub>와 H<sub>j</sub>는 베이의 폭과 높이, O<sub>i</sub>는 넣는 블록의 방향 수입니다.</p>
+    <div class="formula">O( Σ<sub>j</sub> O<sub>i</sub> · H<sub>j</sub> · ( W<sub>j</sub> + n<sub>j</sub>² ) )</div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>식의 항</th><th>코드에서 나오는 곳</th><th>실제로는</th></tr></thead>
+      <tbody>
+        <tr><td>Σ<sub>j</sub></td><td>베이 반복 (<span class="mono">insert.rs:112</span>)</td><td>하한 가지치기로 일부 베이만 훑는 경우가 많다</td></tr>
+        <tr><td>O<sub>i</sub></td><td>방향 반복 (<span class="mono">insert.rs:134</span>)</td><td>줄이지 않는다. 대부분 8</td></tr>
+        <tr><td>H<sub>j</sub></td><td>행 반복 (<span class="mono">insert.rs:145</span>)</td><td>블록 높이만큼 줄고, <code>y_buffer</code>로 더 줄어든다</td></tr>
+        <tr><td>W<sub>j</sub></td><td>계수 정렬의 버킷 수 = x 범위의 길이 + 2 (<span class="mono">placement_scan.rs:503</span>)</td><td>배열을 0으로 채우고 누적합을 구하는 단순한 일</td></tr>
+        <tr><td>n<sub>j</sub> (한 번)</td><td>이벤트 생성. 기존 블록당 격자 두 개의 구간 몇 개</td><td>시간상 무관한 블록은 이미 빠져 있다 (예제에서는 14개 중 4개)</td></tr>
+        <tr><td>n<sub>j</sub>² </td><td>구간 수(최대 n<sub>j</sub>에 비례) × 구간마다 켜진 금지 구간을 훑는 일(최대 n<sub>j</sub>에 비례)</td><td>켜진 구간은 대개 몇 개뿐이고, 답이 나오면 바로 멈춘다</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>식에 시간 축의 길이가 없다는 점이 핵심입니다. 일정이 60일이든 170일이든 삽입 한 번의 비용은 같습니다. 그리고 식에 보이지 않는 n<sub>j</sub>의 실제 크기도 시간 필터 덕분에 "지금 넣으려는 기간 근처에 있는 블록 수"로 줄어듭니다. 롤링 호라이즌에서 새 블록은 일정의 끝 쪽에 들어가므로, 앞쪽에 쌓인 블록 대부분은 처음부터 계산에서 빠집니다.</p>
+    <p class="src">식과 설명은 기술 보고서의 "Greedy geometric insertion and collision detection" 절입니다. 보고서는 블록 쌍 하나의 금지 구간 수를 상수로 본다는 가정을 밝히고 있습니다. "실제로는" 열은 코드와 위 예제에서 제가 확인한 것이고, 솔버를 실행해 측정한 값은 아닙니다.</p>
+  </section>
+
+  <section>
+    <h2>보고서의 설명과 코드가 다른 부분</h2>
+    <p>보고서의 설명은 코드보다 조금 단순하게 적혀 있습니다. 코드 쪽이 실제 동작입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>보고서</th><th>코드</th></tr></thead>
+      <tbody>
+        <tr><td>"처음으로 가능한 행을 찾은 뒤 10개 행만 더 본다"</td><td>가능한 행이 아니라, 지연이 <code>original_tardiness</code> 이하인 후보가 있는 행을 찾은 뒤입니다. 자리는 있지만 기준보다 늦는 행만 계속 나오면 모든 행을 봅니다.</td></tr>
+        <tr><td>Algorithm 2: "동점인 최선 후보를 최대 4개까지 순서대로 유지한다"</td><td>(베이, 방향)마다 최선 하나씩을 모두 모은 뒤, 마지막에 동점만 남기고 정렬해서 4개로 자릅니다. 같은 베이, 같은 방향의 자리 두 개가 함께 남는 일은 없습니다.</td></tr>
+        <tr><td>"켜진 금지 구간을 모두 합쳐서 가장 이른 시각을 찾는다"</td><td>구간을 합치지 않습니다. 미리 정렬해 둔 순서대로 훑으며 건너뜁니다. 결과는 같습니다.</td></tr>
+        <tr><td>Algorithm 2: 가장 이른 시각을 R<sub>i</sub>부터 찾는다</td><td>R<sub>i</sub>와 <code>min_entry_time</code> 중 큰 값부터, <code>max_entry_time</code>까지 찾습니다. 위 한계는 호출처가 정합니다.</td></tr>
+        <tr><td>"베이의 모서리 가까이 놓는 것을 선호한다"</td><td>바운딩 박스의 한 변의 x 좌표를 먼저 비교하고, y는 그것이 같을 때만 봅니다. 모서리까지의 거리를 재는 것이 아닙니다.</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>이해 확인</h2>
+    <details>
+      <summary>한 행에서 x를 54가지가 아니라 다섯 번만 계산해도 되는 이유는 무엇인가요?</summary>
+      <p>가능한 입고 시각은 기존 블록들에 대한 두 방향 상태로 정해지고, 상태는 금지 x 구간의 끝점(이벤트)에서만 바뀝니다. 이벤트 사이의 x들은 상태가 같으므로 결과도 같습니다. 그 구간에서는 앵커 쪽 끝의 x 하나만 후보로 삼습니다.</p>
+    </details>
+    <details>
+      <summary>기존 블록이 11~23일에 있고, 새 블록(P = 6)은 21일부터 들어올 수 있습니다. 두 블록이 서로를 가리는 자리에서 가장 이른 입고 시각은 며칠인가요?</summary>
+      <p>23일입니다. 겹치는 입고 시각은 ol = max(11 − 6 + 1, 21) = 21부터 or = 23 − 1 = 22까지이고, 서로 가리는 상태에서는 이 전체가 금지입니다. 그다음 날인 23일은 기존 블록이 나가는 날이고, 같은 날의 EXIT는 ENTRY보다 먼저 처리되므로 들어갈 수 있습니다. 본문 예제의 x = 0~11 구간이 이 경우입니다.</p>
+    </details>
+    <details>
+      <summary>ΔF가 100인 후보와 0인 후보가 있을 때, 100인 후보가 최종 선택될 수 있나요?</summary>
+      <p>아니요. 마지막 단계에서 최소 ΔF와 동점인 후보만 남기므로 100인 후보는 버려집니다. 확률 0.7로 앞에서부터 고르는 것은 ΔF가 같은 후보들 사이에서만 일어납니다. ΔF가 나빠지는 쪽으로의 탐색은 삽입이 아니라 SA의 수락 규칙이 맡습니다(7장).</p>
+    </details>
+    <details>
+      <summary>추상 사전최적화가 블록 A를 베이 1에, 납기보다 2일 늦게 넣기로 했습니다. 확장 단계에서 A를 삽입할 때 이 정보는 어떻게 쓰이나요?</summary>
+      <p>베이 1이라는 정보는 쓰이지 않습니다. 베이는 A의 선호 순으로 돌며 ΔF로 정합니다. "2일 늦게"는 기준으로 쓰입니다. 어떤 방향의 행들을 훑다가 지연 2일 이하인 후보가 있는 행이 나오면, 그 뒤로 10개 행만 더 보고 그 방향을 끝냅니다. A가 실제로 제때 들어갈 자리가 있으면 그 자리가 선택됩니다.</p>
+    </details>
+  </section>
+  <div class="pager"><a href="#ch4">← 이전: 4장 충돌 판정</a><a href="#ch6">다음: 6장 롤링 호라이즌 →</a></div>
+  </article>

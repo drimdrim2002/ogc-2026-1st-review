@@ -1,0 +1,1053 @@
+  <article class="chapter" id="ch8">
+  <header>
+    <div class="kicker">8 / 8</div>
+    <h1>결과와 교훈: 무엇이 통했고, 무엇을 버렸고, 무엇을 가져갈 것인가</h1>
+  </header>
+
+  <section>
+    <p class="lead">2장 끝에서 세 아이디어를 하나씩 뺐을 때 목적 함수 값이 10% 넘게 나빠진다는 표를 봤습니다. 이 장은 그 숫자가 나온 실제 표를 문제 단위로 펼쳐 보고, 본선 결과, 버린 시도, 개발 방식을 차례로 정리한 뒤 전체 자료를 마무리합니다.</p>
+    <p>순서는 여섯 부분입니다. 학습 40문제의 제거 실험, 항목별 합계, 본선 8문제, 버린 것과 남은 과제, 개발 방식, 그리고 정리와 용어집입니다. 수치는 모두 기술 보고서, 발표 자료 두 편, 저장소의 스크립트와 git 기록에서 가져왔습니다. 이 기기에는 Rust 툴체인이 없어서 솔버를 직접 돌려 본 값은 하나도 없습니다. 발표 자료의 "쪽"은 슬라이드 오른쪽 아래에 적힌 번호입니다. PDF 파일에서는 표지가 앞에 있어서 한 쪽씩 뒤에 있습니다.</p>
+  </section>
+
+  <!-- ================= 1부 ================= -->
+  <div class="part">1부 · 학습 40문제의 제거 실험</div>
+
+  <section>
+    <h2>실험이 어떻게 생겼나</h2>
+    <p>제거 실험(ablation)은 해법에서 부품 하나를 빼고 같은 조건으로 다시 돌려, 그 부품이 얼마나 기여하는지 재는 실험입니다. 보고서는 세 가지 설정을 비교합니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>설정</th><th>내용</th></tr></thead>
+      <tbody>
+        <tr><td>전체 해법</td><td>사전최적화로 투입 순서를 정하고, 20개씩 늘려 가며 최적화</td></tr>
+        <tr><td>사전최적화 제거</td><td>추상 사전최적화를 건너뛰고 투입 순서를 납기(due date)가 빠른 순으로 정함</td></tr>
+        <tr><td>롤링 호라이즌 제거</td><td>모든 블록을 한 호라이즌에 한꺼번에 투입</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <ul class="plain">
+      <li><strong>문제:</strong> 본선용 학습 데이터 40문제. 베이 2~5개, 블록 150~300개입니다.</li>
+      <li><strong>조건:</strong> 문제당 300초, 워커 스레드 4개, 설정마다 한 번씩 실행. 기기는 Apple M1 Pro(8코어, 32GB)입니다.</li>
+      <li><strong>유효성:</strong> 120회 실행 모두 유효한 해를 냈다고 적혀 있습니다.</li>
+    </ul>
+    <p class="src">보고서 "Computational Results" 절 첫 문단입니다. 이 40문제의 입력 파일(<span class="mono">in/train-final/prob_N.json</span>)은 저장소에 없습니다(<span class="mono">.gitignore</span>의 <span class="mono">/in</span>). 그래서 아래 표의 문제 번호를 <span class="mono">train/</span>의 14개 파일과 짝지을 수 없었고, 문제별 가중치도 확인하지 못했습니다.</p>
+  </section>
+
+  <section>
+    <h2>문제별 결과: 보고서의 표 그대로</h2>
+    <p>값은 목적 함수 F = w₁Z₁ + w₂Z₂ + w₃Z₃이고 작을수록 좋습니다. 굵은 숫자가 그 문제에서 가장 좋은 값입니다. 증감 열은 전체 해법 대비 변화율로, 제가 표의 값으로 계산해 붙였습니다.</p>
+    <div class="scroll" style="max-height:27rem;overflow:auto">
+    <table style="font-variant-numeric:tabular-nums">
+      <thead><tr><th style="text-align:right">문제</th><th style="text-align:right">베이</th><th style="text-align:right">블록</th><th style="text-align:right">전체 해법</th><th style="text-align:right">사전최적화 제거</th><th style="text-align:right">증감</th><th style="text-align:right">롤링 호라이즌 제거</th><th style="text-align:right">증감</th></tr></thead>
+      <tbody>
+        <tr><td style="text-align:right">1</td><td style="text-align:right">3</td><td style="text-align:right">150</td><td style="text-align:right"><strong>200,600</strong></td><td style="text-align:right">254,893</td><td style="text-align:right">+27.1%</td><td style="text-align:right">294,493</td><td style="text-align:right">+46.8%</td></tr>
+        <tr><td style="text-align:right">2</td><td style="text-align:right">3</td><td style="text-align:right">250</td><td style="text-align:right"><strong>51,514,630</strong></td><td style="text-align:right">56,503,516</td><td style="text-align:right">+9.7%</td><td style="text-align:right">56,822,966</td><td style="text-align:right">+10.3%</td></tr>
+        <tr><td style="text-align:right">3</td><td style="text-align:right">4</td><td style="text-align:right">200</td><td style="text-align:right">3,861,664</td><td style="text-align:right"><strong>3,727,803</strong></td><td style="text-align:right">−3.5%</td><td style="text-align:right">3,827,482</td><td style="text-align:right">−0.9%</td></tr>
+        <tr><td style="text-align:right">4</td><td style="text-align:right">4</td><td style="text-align:right">250</td><td style="text-align:right">1,495,165</td><td style="text-align:right"><strong>1,284,783</strong></td><td style="text-align:right">−14.1%</td><td style="text-align:right">1,842,738</td><td style="text-align:right">+23.2%</td></tr>
+        <tr><td style="text-align:right">5</td><td style="text-align:right">2</td><td style="text-align:right">150</td><td style="text-align:right"><strong>6,128,553</strong></td><td style="text-align:right">6,379,911</td><td style="text-align:right">+4.1%</td><td style="text-align:right">6,538,337</td><td style="text-align:right">+6.7%</td></tr>
+        <tr><td style="text-align:right">6</td><td style="text-align:right">4</td><td style="text-align:right">250</td><td style="text-align:right">4,453,575</td><td style="text-align:right"><strong>4,395,833</strong></td><td style="text-align:right">−1.3%</td><td style="text-align:right">4,595,350</td><td style="text-align:right">+3.2%</td></tr>
+        <tr><td style="text-align:right">7</td><td style="text-align:right">3</td><td style="text-align:right">150</td><td style="text-align:right">344,892</td><td style="text-align:right">294,701</td><td style="text-align:right">−14.6%</td><td style="text-align:right"><strong>286,315</strong></td><td style="text-align:right">−17.0%</td></tr>
+        <tr><td style="text-align:right">8</td><td style="text-align:right">4</td><td style="text-align:right">200</td><td style="text-align:right"><strong>57,275</strong></td><td style="text-align:right">60,110</td><td style="text-align:right">+4.9%</td><td style="text-align:right">64,021</td><td style="text-align:right">+11.8%</td></tr>
+        <tr><td style="text-align:right">9</td><td style="text-align:right">3</td><td style="text-align:right">200</td><td style="text-align:right">4,787,490</td><td style="text-align:right"><strong>4,515,461</strong></td><td style="text-align:right">−5.7%</td><td style="text-align:right">5,387,753</td><td style="text-align:right">+12.5%</td></tr>
+        <tr><td style="text-align:right">10</td><td style="text-align:right">2</td><td style="text-align:right">150</td><td style="text-align:right"><strong>2,514,378</strong></td><td style="text-align:right">3,196,467</td><td style="text-align:right">+27.1%</td><td style="text-align:right">3,362,278</td><td style="text-align:right">+33.7%</td></tr>
+        <tr><td style="text-align:right">11</td><td style="text-align:right">4</td><td style="text-align:right">250</td><td style="text-align:right">6,158,320</td><td style="text-align:right"><strong>6,153,697</strong></td><td style="text-align:right">−0.1%</td><td style="text-align:right">6,731,431</td><td style="text-align:right">+9.3%</td></tr>
+        <tr><td style="text-align:right">12</td><td style="text-align:right">5</td><td style="text-align:right">300</td><td style="text-align:right"><strong>108,905</strong></td><td style="text-align:right">109,140</td><td style="text-align:right">+0.2%</td><td style="text-align:right">109,631</td><td style="text-align:right">+0.7%</td></tr>
+        <tr><td style="text-align:right">13</td><td style="text-align:right">2</td><td style="text-align:right">300</td><td style="text-align:right"><strong>65,583,089</strong></td><td style="text-align:right">71,348,407</td><td style="text-align:right">+8.8%</td><td style="text-align:right">69,348,586</td><td style="text-align:right">+5.7%</td></tr>
+        <tr><td style="text-align:right">14</td><td style="text-align:right">4</td><td style="text-align:right">250</td><td style="text-align:right"><strong>509,993</strong></td><td style="text-align:right">580,705</td><td style="text-align:right">+13.9%</td><td style="text-align:right">590,104</td><td style="text-align:right">+15.7%</td></tr>
+        <tr><td style="text-align:right">15</td><td style="text-align:right">3</td><td style="text-align:right">250</td><td style="text-align:right"><strong>9,117,871</strong></td><td style="text-align:right">10,285,613</td><td style="text-align:right">+12.8%</td><td style="text-align:right">10,778,146</td><td style="text-align:right">+18.2%</td></tr>
+        <tr><td style="text-align:right">16</td><td style="text-align:right">5</td><td style="text-align:right">300</td><td style="text-align:right"><strong>844,749</strong></td><td style="text-align:right">1,242,098</td><td style="text-align:right">+47.0%</td><td style="text-align:right">2,748,614</td><td style="text-align:right">+225.4%</td></tr>
+        <tr><td style="text-align:right">17</td><td style="text-align:right">3</td><td style="text-align:right">250</td><td style="text-align:right"><strong>4,166,279</strong></td><td style="text-align:right">4,582,154</td><td style="text-align:right">+10.0%</td><td style="text-align:right">4,792,621</td><td style="text-align:right">+15.0%</td></tr>
+        <tr><td style="text-align:right">18</td><td style="text-align:right">3</td><td style="text-align:right">200</td><td style="text-align:right"><strong>7,760,385</strong></td><td style="text-align:right">8,633,235</td><td style="text-align:right">+11.2%</td><td style="text-align:right">8,996,725</td><td style="text-align:right">+15.9%</td></tr>
+        <tr><td style="text-align:right">19</td><td style="text-align:right">3</td><td style="text-align:right">200</td><td style="text-align:right"><strong>14,253,229</strong></td><td style="text-align:right">15,638,146</td><td style="text-align:right">+9.7%</td><td style="text-align:right">16,154,618</td><td style="text-align:right">+13.3%</td></tr>
+        <tr><td style="text-align:right">20</td><td style="text-align:right">3</td><td style="text-align:right">250</td><td style="text-align:right"><strong>7,226,052</strong></td><td style="text-align:right">8,020,782</td><td style="text-align:right">+11.0%</td><td style="text-align:right">9,047,633</td><td style="text-align:right">+25.2%</td></tr>
+        <tr><td style="text-align:right">21</td><td style="text-align:right">2</td><td style="text-align:right">150</td><td style="text-align:right"><strong>601,313</strong></td><td style="text-align:right">629,425</td><td style="text-align:right">+4.7%</td><td style="text-align:right">689,846</td><td style="text-align:right">+14.7%</td></tr>
+        <tr><td style="text-align:right">22</td><td style="text-align:right">3</td><td style="text-align:right">150</td><td style="text-align:right"><strong>1,698</strong></td><td style="text-align:right">1,964</td><td style="text-align:right">+15.7%</td><td style="text-align:right">1,964</td><td style="text-align:right">+15.7%</td></tr>
+        <tr><td style="text-align:right">23</td><td style="text-align:right">5</td><td style="text-align:right">300</td><td style="text-align:right"><strong>10,860,631</strong></td><td style="text-align:right">11,985,764</td><td style="text-align:right">+10.4%</td><td style="text-align:right">12,359,963</td><td style="text-align:right">+13.8%</td></tr>
+        <tr><td style="text-align:right">24</td><td style="text-align:right">3</td><td style="text-align:right">150</td><td style="text-align:right"><strong>1,401,057</strong></td><td style="text-align:right">1,702,012</td><td style="text-align:right">+21.5%</td><td style="text-align:right">2,014,100</td><td style="text-align:right">+43.8%</td></tr>
+        <tr><td style="text-align:right">25</td><td style="text-align:right">2</td><td style="text-align:right">300</td><td style="text-align:right"><strong>65,341,045</strong></td><td style="text-align:right">74,668,806</td><td style="text-align:right">+14.3%</td><td style="text-align:right">72,491,167</td><td style="text-align:right">+10.9%</td></tr>
+        <tr><td style="text-align:right">26</td><td style="text-align:right">2</td><td style="text-align:right">300</td><td style="text-align:right"><strong>22,713,804</strong></td><td style="text-align:right">26,057,775</td><td style="text-align:right">+14.7%</td><td style="text-align:right">24,568,661</td><td style="text-align:right">+8.2%</td></tr>
+        <tr><td style="text-align:right">27</td><td style="text-align:right">4</td><td style="text-align:right">200</td><td style="text-align:right"><strong>113,267</strong></td><td style="text-align:right">137,490</td><td style="text-align:right">+21.4%</td><td style="text-align:right">181,368</td><td style="text-align:right">+60.1%</td></tr>
+        <tr><td style="text-align:right">28</td><td style="text-align:right">4</td><td style="text-align:right">250</td><td style="text-align:right"><strong>12,835,222</strong></td><td style="text-align:right">13,600,998</td><td style="text-align:right">+6.0%</td><td style="text-align:right">14,918,839</td><td style="text-align:right">+16.2%</td></tr>
+        <tr><td style="text-align:right">29</td><td style="text-align:right">4</td><td style="text-align:right">200</td><td style="text-align:right"><strong>172,024</strong></td><td style="text-align:right">182,248</td><td style="text-align:right">+5.9%</td><td style="text-align:right">205,686</td><td style="text-align:right">+19.6%</td></tr>
+        <tr><td style="text-align:right">30</td><td style="text-align:right">5</td><td style="text-align:right">300</td><td style="text-align:right">1,290,398</td><td style="text-align:right"><strong>1,261,997</strong></td><td style="text-align:right">−2.2%</td><td style="text-align:right">1,707,717</td><td style="text-align:right">+32.3%</td></tr>
+        <tr><td style="text-align:right">31</td><td style="text-align:right">3</td><td style="text-align:right">200</td><td style="text-align:right"><strong>2,514,690</strong></td><td style="text-align:right">3,028,944</td><td style="text-align:right">+20.4%</td><td style="text-align:right">3,303,448</td><td style="text-align:right">+31.4%</td></tr>
+        <tr><td style="text-align:right">32</td><td style="text-align:right">4</td><td style="text-align:right">200</td><td style="text-align:right"><strong>545,663</strong></td><td style="text-align:right">603,104</td><td style="text-align:right">+10.5%</td><td style="text-align:right">603,576</td><td style="text-align:right">+10.6%</td></tr>
+        <tr><td style="text-align:right">33</td><td style="text-align:right">2</td><td style="text-align:right">150</td><td style="text-align:right">452,702</td><td style="text-align:right"><strong>372,622</strong></td><td style="text-align:right">−17.7%</td><td style="text-align:right">987,223</td><td style="text-align:right">+118.1%</td></tr>
+        <tr><td style="text-align:right">34</td><td style="text-align:right">5</td><td style="text-align:right">300</td><td style="text-align:right">128,823</td><td style="text-align:right"><strong>127,209</strong></td><td style="text-align:right">−1.3%</td><td style="text-align:right">148,527</td><td style="text-align:right">+15.3%</td></tr>
+        <tr><td style="text-align:right">35</td><td style="text-align:right">4</td><td style="text-align:right">250</td><td style="text-align:right"><strong>81,715</strong></td><td style="text-align:right">83,496</td><td style="text-align:right">+2.2%</td><td style="text-align:right">140,982</td><td style="text-align:right">+72.5%</td></tr>
+        <tr><td style="text-align:right">36</td><td style="text-align:right">2</td><td style="text-align:right">300</td><td style="text-align:right"><strong>69,984,887</strong></td><td style="text-align:right">78,781,616</td><td style="text-align:right">+12.6%</td><td style="text-align:right">75,387,709</td><td style="text-align:right">+7.7%</td></tr>
+        <tr><td style="text-align:right">37</td><td style="text-align:right">2</td><td style="text-align:right">150</td><td style="text-align:right"><strong>14,170,930</strong></td><td style="text-align:right">15,999,477</td><td style="text-align:right">+12.9%</td><td style="text-align:right">15,299,472</td><td style="text-align:right">+8.0%</td></tr>
+        <tr><td style="text-align:right">38</td><td style="text-align:right">4</td><td style="text-align:right">200</td><td style="text-align:right"><strong>6,466,785</strong></td><td style="text-align:right">7,300,523</td><td style="text-align:right">+12.9%</td><td style="text-align:right">6,973,239</td><td style="text-align:right">+7.8%</td></tr>
+        <tr><td style="text-align:right">39</td><td style="text-align:right">2</td><td style="text-align:right">150</td><td style="text-align:right"><strong>41,480,168</strong></td><td style="text-align:right">43,320,130</td><td style="text-align:right">+4.4%</td><td style="text-align:right">44,791,617</td><td style="text-align:right">+8.0%</td></tr>
+        <tr><td style="text-align:right">40</td><td style="text-align:right">2</td><td style="text-align:right">300</td><td style="text-align:right"><strong>6,027,103</strong></td><td style="text-align:right">7,205,291</td><td style="text-align:right">+19.5%</td><td style="text-align:right">7,256,137</td><td style="text-align:right">+20.4%</td></tr>
+        <tr><td>합계</td><td></td><td></td><td style="text-align:right"><strong>448,271,019</strong></td><td style="text-align:right">494,258,346</td><td style="text-align:right">+10.3%</td><td style="text-align:right">496,351,083</td><td style="text-align:right">+10.7%</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="src">보고서 Table 2("Case-wise total objective values")를 옮겼습니다. 합계 행은 보고서 Table 1의 Total과 같습니다. 표는 세로로 스크롤됩니다.</p>
+    <p>문제마다 값의 크기가 크게 다릅니다. 22번은 1,698이고 36번은 약 7,000만입니다. 가중치와 혼잡도가 문제마다 다르기 때문입니다. 그래서 합계는 값이 큰 문제 몇 개가 좌우합니다. 값이 큰 여섯 문제(36, 13, 25, 2, 39, 26번)가 전체 해법 합계의 70.6%입니다.</p>
+  </section>
+
+  <section>
+    <h2>그림으로 보기: 문제별 상대 차이</h2>
+    <figure>
+      <div class="scroll">
+        <svg viewBox="0 0 720 300" role="img" aria-label="학습 40문제에서 사전최적화를 뺐을 때와 롤링 호라이즌을 뺐을 때 목적 함수 값이 전체 해법 대비 몇 퍼센트 달라졌는지를 문제별로 그린 막대 그림. 베이 수로 묶어 놓았다. 대부분 0보다 위이고, 16번 문제에서 롤링 호라이즌 제거가 225퍼센트로 가장 크다. 0보다 아래인 막대는 9문제에 있다.">
+        <rect x="46" y="8" width="11" height="11" class="f-steel" stroke-width="1"/>
+        <text x="62" y="18" font-size="12" fill="currentColor">사전최적화 제거</text>
+        <rect x="170" y="8" width="11" height="11" class="f-crane" stroke-width="1"/>
+        <text x="186" y="18" font-size="12" fill="currentColor">롤링 호라이즌 제거</text>
+        <text x="712" y="18" font-size="11" class="t-muted" text-anchor="end">전체 해법 대비 목적 함수 값의 증감. 위쪽 = 빼면 나빠짐</text>
+        <line x1="46" y1="240" x2="712" y2="240" class="s-muted" stroke-width=".5"/>
+        <line x1="46" y1="160" x2="712" y2="160" class="s-muted" stroke-width=".5"/>
+        <line x1="46" y1="120" x2="712" y2="120" class="s-muted" stroke-width=".5"/>
+        <line x1="46" y1="80" x2="712" y2="80" class="s-muted" stroke-width=".5"/>
+        <line x1="46" y1="40" x2="712" y2="40" class="s-muted" stroke-width=".5"/>
+        <text x="40" y="244" font-size="11" class="t-muted" text-anchor="end">−20%</text>
+        <text x="40" y="204" font-size="11" class="t-muted" text-anchor="end">0%</text>
+        <text x="40" y="164" font-size="11" class="t-muted" text-anchor="end">+20%</text>
+        <text x="40" y="124" font-size="11" class="t-muted" text-anchor="end">+40%</text>
+        <text x="40" y="84" font-size="11" class="t-muted" text-anchor="end">+60%</text>
+        <text x="40" y="44" font-size="11" class="t-muted" text-anchor="end">+80%</text>
+        <text x="54.0" y="254" font-size="9" class="t-muted" text-anchor="middle">5</text>
+        <text x="70.1" y="254" font-size="9" class="t-muted" text-anchor="middle">10</text>
+        <text x="86.1" y="254" font-size="9" class="t-muted" text-anchor="middle">13</text>
+        <text x="102.2" y="254" font-size="9" class="t-muted" text-anchor="middle">21</text>
+        <text x="118.2" y="254" font-size="9" class="t-muted" text-anchor="middle">25</text>
+        <text x="134.3" y="254" font-size="9" class="t-muted" text-anchor="middle">26</text>
+        <text x="150.3" y="254" font-size="9" class="t-muted" text-anchor="middle">33</text>
+        <text x="166.4" y="254" font-size="9" class="t-muted" text-anchor="middle">36</text>
+        <text x="182.4" y="254" font-size="9" class="t-muted" text-anchor="middle">37</text>
+        <text x="198.5" y="254" font-size="9" class="t-muted" text-anchor="middle">39</text>
+        <text x="214.5" y="254" font-size="9" class="t-muted" text-anchor="middle">40</text>
+        <line x1="226.1" y1="34" x2="226.1" y2="282" class="s-muted" stroke-width=".5" stroke-dasharray="3 3"/>
+        <text x="238.6" y="254" font-size="9" class="t-muted" text-anchor="middle">1</text>
+        <text x="254.6" y="254" font-size="9" class="t-muted" text-anchor="middle">2</text>
+        <text x="270.7" y="254" font-size="9" class="t-muted" text-anchor="middle">7</text>
+        <text x="286.7" y="254" font-size="9" class="t-muted" text-anchor="middle">9</text>
+        <text x="302.8" y="254" font-size="9" class="t-muted" text-anchor="middle">15</text>
+        <text x="318.8" y="254" font-size="9" class="t-muted" text-anchor="middle">17</text>
+        <text x="334.9" y="254" font-size="9" class="t-muted" text-anchor="middle">18</text>
+        <text x="350.9" y="254" font-size="9" class="t-muted" text-anchor="middle">19</text>
+        <text x="367.0" y="254" font-size="9" class="t-muted" text-anchor="middle">20</text>
+        <text x="383.0" y="254" font-size="9" class="t-muted" text-anchor="middle">22</text>
+        <text x="399.1" y="254" font-size="9" class="t-muted" text-anchor="middle">24</text>
+        <text x="415.1" y="254" font-size="9" class="t-muted" text-anchor="middle">31</text>
+        <line x1="426.7" y1="34" x2="426.7" y2="282" class="s-muted" stroke-width=".5" stroke-dasharray="3 3"/>
+        <text x="439.2" y="254" font-size="9" class="t-muted" text-anchor="middle">3</text>
+        <text x="455.2" y="254" font-size="9" class="t-muted" text-anchor="middle">4</text>
+        <text x="471.3" y="254" font-size="9" class="t-muted" text-anchor="middle">6</text>
+        <text x="487.3" y="254" font-size="9" class="t-muted" text-anchor="middle">8</text>
+        <text x="503.4" y="254" font-size="9" class="t-muted" text-anchor="middle">11</text>
+        <text x="519.4" y="254" font-size="9" class="t-muted" text-anchor="middle">14</text>
+        <text x="535.5" y="254" font-size="9" class="t-muted" text-anchor="middle">27</text>
+        <text x="551.5" y="254" font-size="9" class="t-muted" text-anchor="middle">28</text>
+        <text x="567.6" y="254" font-size="9" class="t-muted" text-anchor="middle">29</text>
+        <text x="583.6" y="254" font-size="9" class="t-muted" text-anchor="middle">32</text>
+        <text x="599.7" y="254" font-size="9" class="t-muted" text-anchor="middle">35</text>
+        <text x="615.7" y="254" font-size="9" class="t-muted" text-anchor="middle">38</text>
+        <line x1="627.2" y1="34" x2="627.2" y2="282" class="s-muted" stroke-width=".5" stroke-dasharray="3 3"/>
+        <text x="639.8" y="254" font-size="9" class="t-muted" text-anchor="middle">12</text>
+        <text x="655.8" y="254" font-size="9" class="t-muted" text-anchor="middle">16</text>
+        <text x="671.9" y="254" font-size="9" class="t-muted" text-anchor="middle">23</text>
+        <text x="687.9" y="254" font-size="9" class="t-muted" text-anchor="middle">30</text>
+        <text x="704.0" y="254" font-size="9" class="t-muted" text-anchor="middle">34</text>
+        <rect x="47.8" y="191.8" width="5.5" height="8.2" class="f-steel" stroke-width=".8"><title>5번 문제 (베이 2개, 블록 150개) · 사전최적화 제거: +4.1%</title></rect>
+        <rect x="54.8" y="186.6" width="5.5" height="13.4" class="f-crane" stroke-width=".8"><title>5번 문제 (베이 2개, 블록 150개) · 롤링 호라이즌 제거: +6.7%</title></rect>
+        <rect x="63.8" y="145.7" width="5.5" height="54.3" class="f-steel" stroke-width=".8"><title>10번 문제 (베이 2개, 블록 150개) · 사전최적화 제거: +27.1%</title></rect>
+        <rect x="70.8" y="132.6" width="5.5" height="67.4" class="f-crane" stroke-width=".8"><title>10번 문제 (베이 2개, 블록 150개) · 롤링 호라이즌 제거: +33.7%</title></rect>
+        <rect x="79.9" y="182.4" width="5.5" height="17.6" class="f-steel" stroke-width=".8"><title>13번 문제 (베이 2개, 블록 300개) · 사전최적화 제거: +8.8%</title></rect>
+        <rect x="86.9" y="188.5" width="5.5" height="11.5" class="f-crane" stroke-width=".8"><title>13번 문제 (베이 2개, 블록 300개) · 롤링 호라이즌 제거: +5.7%</title></rect>
+        <rect x="95.9" y="190.6" width="5.5" height="9.4" class="f-steel" stroke-width=".8"><title>21번 문제 (베이 2개, 블록 150개) · 사전최적화 제거: +4.7%</title></rect>
+        <rect x="102.9" y="170.6" width="5.5" height="29.4" class="f-crane" stroke-width=".8"><title>21번 문제 (베이 2개, 블록 150개) · 롤링 호라이즌 제거: +14.7%</title></rect>
+        <rect x="112.0" y="171.4" width="5.5" height="28.6" class="f-steel" stroke-width=".8"><title>25번 문제 (베이 2개, 블록 300개) · 사전최적화 제거: +14.3%</title></rect>
+        <rect x="119.0" y="178.1" width="5.5" height="21.9" class="f-crane" stroke-width=".8"><title>25번 문제 (베이 2개, 블록 300개) · 롤링 호라이즌 제거: +10.9%</title></rect>
+        <rect x="128.0" y="170.6" width="5.5" height="29.4" class="f-steel" stroke-width=".8"><title>26번 문제 (베이 2개, 블록 300개) · 사전최적화 제거: +14.7%</title></rect>
+        <rect x="135.0" y="183.7" width="5.5" height="16.3" class="f-crane" stroke-width=".8"><title>26번 문제 (베이 2개, 블록 300개) · 롤링 호라이즌 제거: +8.2%</title></rect>
+        <rect x="144.1" y="200.0" width="5.5" height="35.4" class="f-steel" stroke-width=".8"><title>33번 문제 (베이 2개, 블록 150개) · 사전최적화 제거: −17.7%</title></rect>
+        <rect x="151.1" y="40.0" width="5.5" height="160.0" class="f-crane" stroke-width=".8"><title>33번 문제 (베이 2개, 블록 150개) · 롤링 호라이즌 제거: +118.1%</title></rect>
+        <path d="M149.6,47.0 l8.5,-4 M149.6,51.0 l8.5,-4" class="s-line" stroke-width="1"/>
+        <rect x="160.1" y="174.9" width="5.5" height="25.1" class="f-steel" stroke-width=".8"><title>36번 문제 (베이 2개, 블록 300개) · 사전최적화 제거: +12.6%</title></rect>
+        <rect x="167.1" y="184.6" width="5.5" height="15.4" class="f-crane" stroke-width=".8"><title>36번 문제 (베이 2개, 블록 300개) · 롤링 호라이즌 제거: +7.7%</title></rect>
+        <rect x="176.2" y="174.2" width="5.5" height="25.8" class="f-steel" stroke-width=".8"><title>37번 문제 (베이 2개, 블록 150개) · 사전최적화 제거: +12.9%</title></rect>
+        <rect x="183.2" y="184.1" width="5.5" height="15.9" class="f-crane" stroke-width=".8"><title>37번 문제 (베이 2개, 블록 150개) · 롤링 호라이즌 제거: +8.0%</title></rect>
+        <rect x="192.2" y="191.1" width="5.5" height="8.9" class="f-steel" stroke-width=".8"><title>39번 문제 (베이 2개, 블록 150개) · 사전최적화 제거: +4.4%</title></rect>
+        <rect x="199.2" y="184.0" width="5.5" height="16.0" class="f-crane" stroke-width=".8"><title>39번 문제 (베이 2개, 블록 150개) · 롤링 호라이즌 제거: +8.0%</title></rect>
+        <rect x="208.3" y="160.9" width="5.5" height="39.1" class="f-steel" stroke-width=".8"><title>40번 문제 (베이 2개, 블록 300개) · 사전최적화 제거: +19.5%</title></rect>
+        <rect x="215.3" y="159.2" width="5.5" height="40.8" class="f-crane" stroke-width=".8"><title>40번 문제 (베이 2개, 블록 300개) · 롤링 호라이즌 제거: +20.4%</title></rect>
+        <rect x="232.3" y="145.9" width="5.5" height="54.1" class="f-steel" stroke-width=".8"><title>1번 문제 (베이 3개, 블록 150개) · 사전최적화 제거: +27.1%</title></rect>
+        <rect x="239.3" y="106.4" width="5.5" height="93.6" class="f-crane" stroke-width=".8"><title>1번 문제 (베이 3개, 블록 150개) · 롤링 호라이즌 제거: +46.8%</title></rect>
+        <rect x="248.4" y="180.6" width="5.5" height="19.4" class="f-steel" stroke-width=".8"><title>2번 문제 (베이 3개, 블록 250개) · 사전최적화 제거: +9.7%</title></rect>
+        <rect x="255.4" y="179.4" width="5.5" height="20.6" class="f-crane" stroke-width=".8"><title>2번 문제 (베이 3개, 블록 250개) · 롤링 호라이즌 제거: +10.3%</title></rect>
+        <rect x="264.4" y="200.0" width="5.5" height="29.1" class="f-steel" stroke-width=".8"><title>7번 문제 (베이 3개, 블록 150개) · 사전최적화 제거: −14.6%</title></rect>
+        <rect x="271.4" y="200.0" width="5.5" height="34.0" class="f-crane" stroke-width=".8"><title>7번 문제 (베이 3개, 블록 150개) · 롤링 호라이즌 제거: −17.0%</title></rect>
+        <rect x="280.5" y="200.0" width="5.5" height="11.4" class="f-steel" stroke-width=".8"><title>9번 문제 (베이 3개, 블록 200개) · 사전최적화 제거: −5.7%</title></rect>
+        <rect x="287.5" y="174.9" width="5.5" height="25.1" class="f-crane" stroke-width=".8"><title>9번 문제 (베이 3개, 블록 200개) · 롤링 호라이즌 제거: +12.5%</title></rect>
+        <rect x="296.5" y="174.4" width="5.5" height="25.6" class="f-steel" stroke-width=".8"><title>15번 문제 (베이 3개, 블록 250개) · 사전최적화 제거: +12.8%</title></rect>
+        <rect x="303.5" y="163.6" width="5.5" height="36.4" class="f-crane" stroke-width=".8"><title>15번 문제 (베이 3개, 블록 250개) · 롤링 호라이즌 제거: +18.2%</title></rect>
+        <rect x="312.6" y="180.0" width="5.5" height="20.0" class="f-steel" stroke-width=".8"><title>17번 문제 (베이 3개, 블록 250개) · 사전최적화 제거: +10.0%</title></rect>
+        <rect x="319.6" y="169.9" width="5.5" height="30.1" class="f-crane" stroke-width=".8"><title>17번 문제 (베이 3개, 블록 250개) · 롤링 호라이즌 제거: +15.0%</title></rect>
+        <rect x="328.6" y="177.5" width="5.5" height="22.5" class="f-steel" stroke-width=".8"><title>18번 문제 (베이 3개, 블록 200개) · 사전최적화 제거: +11.2%</title></rect>
+        <rect x="335.6" y="168.1" width="5.5" height="31.9" class="f-crane" stroke-width=".8"><title>18번 문제 (베이 3개, 블록 200개) · 롤링 호라이즌 제거: +15.9%</title></rect>
+        <rect x="344.7" y="180.6" width="5.5" height="19.4" class="f-steel" stroke-width=".8"><title>19번 문제 (베이 3개, 블록 200개) · 사전최적화 제거: +9.7%</title></rect>
+        <rect x="351.7" y="173.3" width="5.5" height="26.7" class="f-crane" stroke-width=".8"><title>19번 문제 (베이 3개, 블록 200개) · 롤링 호라이즌 제거: +13.3%</title></rect>
+        <rect x="360.7" y="178.0" width="5.5" height="22.0" class="f-steel" stroke-width=".8"><title>20번 문제 (베이 3개, 블록 250개) · 사전최적화 제거: +11.0%</title></rect>
+        <rect x="367.7" y="149.6" width="5.5" height="50.4" class="f-crane" stroke-width=".8"><title>20번 문제 (베이 3개, 블록 250개) · 롤링 호라이즌 제거: +25.2%</title></rect>
+        <rect x="376.8" y="168.7" width="5.5" height="31.3" class="f-steel" stroke-width=".8"><title>22번 문제 (베이 3개, 블록 150개) · 사전최적화 제거: +15.7%</title></rect>
+        <rect x="383.8" y="168.7" width="5.5" height="31.3" class="f-crane" stroke-width=".8"><title>22번 문제 (베이 3개, 블록 150개) · 롤링 호라이즌 제거: +15.7%</title></rect>
+        <rect x="392.8" y="157.0" width="5.5" height="43.0" class="f-steel" stroke-width=".8"><title>24번 문제 (베이 3개, 블록 150개) · 사전최적화 제거: +21.5%</title></rect>
+        <rect x="399.8" y="112.5" width="5.5" height="87.5" class="f-crane" stroke-width=".8"><title>24번 문제 (베이 3개, 블록 150개) · 롤링 호라이즌 제거: +43.8%</title></rect>
+        <rect x="408.9" y="159.1" width="5.5" height="40.9" class="f-steel" stroke-width=".8"><title>31번 문제 (베이 3개, 블록 200개) · 사전최적화 제거: +20.4%</title></rect>
+        <rect x="415.9" y="137.3" width="5.5" height="62.7" class="f-crane" stroke-width=".8"><title>31번 문제 (베이 3개, 블록 200개) · 롤링 호라이즌 제거: +31.4%</title></rect>
+        <rect x="432.9" y="200.0" width="5.5" height="6.9" class="f-steel" stroke-width=".8"><title>3번 문제 (베이 4개, 블록 200개) · 사전최적화 제거: −3.5%</title></rect>
+        <rect x="439.9" y="200.0" width="5.5" height="1.8" class="f-crane" stroke-width=".8"><title>3번 문제 (베이 4개, 블록 200개) · 롤링 호라이즌 제거: −0.9%</title></rect>
+        <rect x="449.0" y="200.0" width="5.5" height="28.1" class="f-steel" stroke-width=".8"><title>4번 문제 (베이 4개, 블록 250개) · 사전최적화 제거: −14.1%</title></rect>
+        <rect x="456.0" y="153.5" width="5.5" height="46.5" class="f-crane" stroke-width=".8"><title>4번 문제 (베이 4개, 블록 250개) · 롤링 호라이즌 제거: +23.2%</title></rect>
+        <rect x="465.0" y="200.0" width="5.5" height="2.6" class="f-steel" stroke-width=".8"><title>6번 문제 (베이 4개, 블록 250개) · 사전최적화 제거: −1.3%</title></rect>
+        <rect x="472.0" y="193.6" width="5.5" height="6.4" class="f-crane" stroke-width=".8"><title>6번 문제 (베이 4개, 블록 250개) · 롤링 호라이즌 제거: +3.2%</title></rect>
+        <rect x="481.1" y="190.1" width="5.5" height="9.9" class="f-steel" stroke-width=".8"><title>8번 문제 (베이 4개, 블록 200개) · 사전최적화 제거: +4.9%</title></rect>
+        <rect x="488.1" y="176.4" width="5.5" height="23.6" class="f-crane" stroke-width=".8"><title>8번 문제 (베이 4개, 블록 200개) · 롤링 호라이즌 제거: +11.8%</title></rect>
+        <rect x="497.1" y="200.0" width="5.5" height="0.8" class="f-steel" stroke-width=".8"><title>11번 문제 (베이 4개, 블록 250개) · 사전최적화 제거: −0.1%</title></rect>
+        <rect x="504.1" y="181.4" width="5.5" height="18.6" class="f-crane" stroke-width=".8"><title>11번 문제 (베이 4개, 블록 250개) · 롤링 호라이즌 제거: +9.3%</title></rect>
+        <rect x="513.2" y="172.3" width="5.5" height="27.7" class="f-steel" stroke-width=".8"><title>14번 문제 (베이 4개, 블록 250개) · 사전최적화 제거: +13.9%</title></rect>
+        <rect x="520.2" y="168.6" width="5.5" height="31.4" class="f-crane" stroke-width=".8"><title>14번 문제 (베이 4개, 블록 250개) · 롤링 호라이즌 제거: +15.7%</title></rect>
+        <rect x="529.2" y="157.2" width="5.5" height="42.8" class="f-steel" stroke-width=".8"><title>27번 문제 (베이 4개, 블록 200개) · 사전최적화 제거: +21.4%</title></rect>
+        <rect x="536.2" y="79.8" width="5.5" height="120.2" class="f-crane" stroke-width=".8"><title>27번 문제 (베이 4개, 블록 200개) · 롤링 호라이즌 제거: +60.1%</title></rect>
+        <rect x="545.3" y="188.1" width="5.5" height="11.9" class="f-steel" stroke-width=".8"><title>28번 문제 (베이 4개, 블록 250개) · 사전최적화 제거: +6.0%</title></rect>
+        <rect x="552.3" y="167.5" width="5.5" height="32.5" class="f-crane" stroke-width=".8"><title>28번 문제 (베이 4개, 블록 250개) · 롤링 호라이즌 제거: +16.2%</title></rect>
+        <rect x="561.3" y="188.1" width="5.5" height="11.9" class="f-steel" stroke-width=".8"><title>29번 문제 (베이 4개, 블록 200개) · 사전최적화 제거: +5.9%</title></rect>
+        <rect x="568.3" y="160.9" width="5.5" height="39.1" class="f-crane" stroke-width=".8"><title>29번 문제 (베이 4개, 블록 200개) · 롤링 호라이즌 제거: +19.6%</title></rect>
+        <rect x="577.4" y="178.9" width="5.5" height="21.1" class="f-steel" stroke-width=".8"><title>32번 문제 (베이 4개, 블록 200개) · 사전최적화 제거: +10.5%</title></rect>
+        <rect x="584.4" y="178.8" width="5.5" height="21.2" class="f-crane" stroke-width=".8"><title>32번 문제 (베이 4개, 블록 200개) · 롤링 호라이즌 제거: +10.6%</title></rect>
+        <rect x="593.4" y="195.6" width="5.5" height="4.4" class="f-steel" stroke-width=".8"><title>35번 문제 (베이 4개, 블록 250개) · 사전최적화 제거: +2.2%</title></rect>
+        <rect x="600.4" y="54.9" width="5.5" height="145.1" class="f-crane" stroke-width=".8"><title>35번 문제 (베이 4개, 블록 250개) · 롤링 호라이즌 제거: +72.5%</title></rect>
+        <rect x="609.5" y="174.2" width="5.5" height="25.8" class="f-steel" stroke-width=".8"><title>38번 문제 (베이 4개, 블록 200개) · 사전최적화 제거: +12.9%</title></rect>
+        <rect x="616.5" y="184.3" width="5.5" height="15.7" class="f-crane" stroke-width=".8"><title>38번 문제 (베이 4개, 블록 200개) · 롤링 호라이즌 제거: +7.8%</title></rect>
+        <rect x="633.5" y="199.6" width="5.5" height="0.8" class="f-steel" stroke-width=".8"><title>12번 문제 (베이 5개, 블록 300개) · 사전최적화 제거: +0.2%</title></rect>
+        <rect x="640.5" y="198.7" width="5.5" height="1.3" class="f-crane" stroke-width=".8"><title>12번 문제 (베이 5개, 블록 300개) · 롤링 호라이즌 제거: +0.7%</title></rect>
+        <rect x="649.6" y="105.9" width="5.5" height="94.1" class="f-steel" stroke-width=".8"><title>16번 문제 (베이 5개, 블록 300개) · 사전최적화 제거: +47.0%</title></rect>
+        <rect x="656.6" y="40.0" width="5.5" height="160.0" class="f-crane" stroke-width=".8"><title>16번 문제 (베이 5개, 블록 300개) · 롤링 호라이즌 제거: +225.4%</title></rect>
+        <path d="M655.1,47.0 l8.5,-4 M655.1,51.0 l8.5,-4" class="s-line" stroke-width="1"/>
+        <rect x="665.6" y="179.3" width="5.5" height="20.7" class="f-steel" stroke-width=".8"><title>23번 문제 (베이 5개, 블록 300개) · 사전최적화 제거: +10.4%</title></rect>
+        <rect x="672.6" y="172.4" width="5.5" height="27.6" class="f-crane" stroke-width=".8"><title>23번 문제 (베이 5개, 블록 300개) · 롤링 호라이즌 제거: +13.8%</title></rect>
+        <rect x="681.7" y="200.0" width="5.5" height="4.4" class="f-steel" stroke-width=".8"><title>30번 문제 (베이 5개, 블록 300개) · 사전최적화 제거: −2.2%</title></rect>
+        <rect x="688.7" y="135.3" width="5.5" height="64.7" class="f-crane" stroke-width=".8"><title>30번 문제 (베이 5개, 블록 300개) · 롤링 호라이즌 제거: +32.3%</title></rect>
+        <rect x="697.7" y="200.0" width="5.5" height="2.5" class="f-steel" stroke-width=".8"><title>34번 문제 (베이 5개, 블록 300개) · 사전최적화 제거: −1.3%</title></rect>
+        <rect x="704.7" y="169.4" width="5.5" height="30.6" class="f-crane" stroke-width=".8"><title>34번 문제 (베이 5개, 블록 300개) · 롤링 호라이즌 제거: +15.3%</title></rect>
+        <line x1="46" y1="200" x2="712" y2="200" class="s-line" stroke-width="1.2"/>
+        <text x="153.8" y="35.0" font-size="11" fill="currentColor" text-anchor="middle">+118%</text>
+        <text x="659.3" y="35.0" font-size="11" fill="currentColor" text-anchor="middle">+225%</text>
+        <text x="134.3" y="274" font-size="11" fill="currentColor" text-anchor="middle">베이 2개 · 11문제</text>
+        <text x="326.9" y="274" font-size="11" fill="currentColor" text-anchor="middle">베이 3개 · 12문제</text>
+        <text x="527.5" y="274" font-size="11" fill="currentColor" text-anchor="middle">베이 4개 · 12문제</text>
+        <text x="671.9" y="274" font-size="11" fill="currentColor" text-anchor="middle">베이 5개 · 5문제</text>
+        <text x="46" y="294" font-size="11" class="t-muted">막대 아래 숫자 = 보고서 표의 문제 번호. 끊긴 막대는 눈금(+80%)을 넘는 값</text>
+        </svg>
+      </div>
+      <figcaption>위 표의 증감 열을 그린 것입니다. 0 위로 올라간 막대는 그 부품을 빼면 나빠졌다는 뜻이고, 0 아래로 내려간 막대는 뺀 쪽이 오히려 좋았다는 뜻입니다. 막대에 마우스를 올리면 값이 나옵니다. 출처: 보고서 Table 2, 계산은 직접.</figcaption>
+    </figure>
+    <p>세 가지가 눈에 들어옵니다. 막대 대부분이 0 위에 있습니다. 주황 막대(롤링 호라이즌 제거)는 문제에 따라 높이 차이가 큽니다. 그리고 0 아래로 내려간 막대는 파랑(사전최적화 제거)이 대부분입니다.</p>
+  </section>
+
+  <section>
+    <h2>어디서 이기고 어디서 졌나</h2>
+    <p>보고서는 가장 좋은 값을 낸 횟수를 이렇게 적습니다. 전체 해법 31문제, 사전최적화 제거 8문제, 롤링 호라이즌 제거 1문제입니다. 이 숫자를 베이 수와 값의 크기로 나눠 보면 아래와 같습니다.</p>
+    <div class="scroll">
+    <table style="font-variant-numeric:tabular-nums">
+      <thead><tr><th>묶음</th><th style="text-align:right">문제 수</th><th style="text-align:right">전체 해법 합계</th><th style="text-align:right">사전최적화 제거</th><th style="text-align:right">롤링 호라이즌 제거</th><th style="text-align:right">최선 횟수 (전체 / 사전 제거 / 롤링 제거)</th></tr></thead>
+      <tbody>
+        <tr><td>베이 2개</td><td style="text-align:right">11</td><td style="text-align:right">294,997,972</td><td style="text-align:right">+11.2%</td><td style="text-align:right">+8.7%</td><td style="text-align:right">10 / 1 / 0</td></tr>
+        <tr><td>베이 3개</td><td style="text-align:right">12</td><td style="text-align:right">103,288,873</td><td style="text-align:right">+9.8%</td><td style="text-align:right">+14.1%</td><td style="text-align:right">10 / 1 / 1</td></tr>
+        <tr><td>베이 4개</td><td style="text-align:right">12</td><td style="text-align:right">36,750,668</td><td style="text-align:right">+3.7%</td><td style="text-align:right">+10.7%</td><td style="text-align:right">8 / 4 / 0</td></tr>
+        <tr><td>베이 5개</td><td style="text-align:right">5</td><td style="text-align:right">13,233,506</td><td style="text-align:right">+11.3%</td><td style="text-align:right">+29.0%</td><td style="text-align:right">3 / 2 / 0</td></tr>
+        <tr><td>100만 미만</td><td style="text-align:right">14</td><td style="text-align:right">4,163,619</td><td style="text-align:right">+12.4%</td><td style="text-align:right">+69.4%</td><td style="text-align:right">11 / 2 / 1</td></tr>
+        <tr><td>100만 ~ 1,000만</td><td style="text-align:right">16</td><td style="text-align:right">75,369,765</td><td style="text-align:right">+8.4%</td><td style="text-align:right">+15.6%</td><td style="text-align:right">10 / 6 / 0</td></tr>
+        <tr><td>1,000만 이상</td><td style="text-align:right">10</td><td style="text-align:right">368,737,635</td><td style="text-align:right">+10.6%</td><td style="text-align:right">+9.1%</td><td style="text-align:right">10 / 0 / 0</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="src">보고서 Table 2를 묶어서 직접 계산했습니다. 증감은 묶음 안 합계끼리의 비율입니다. 아래 세 줄은 전체 해법의 값 크기로 나눈 것입니다.</p>
+    <ul class="plain">
+      <li><strong>값이 큰 문제에서는 전체 해법이 한 번도 지지 않았습니다.</strong> 값이 1,000만 이상인 10문제 모두에서 전체 해법이 최선입니다. 합계의 대부분이 여기서 나옵니다.</li>
+      <li><strong>전체 해법이 진 9문제는 모두 값이 1,000만 미만입니다.</strong> 3, 4, 6, 7, 9, 11, 30, 33, 34번입니다. 그중 6문제가 베이 4~5개짜리입니다. 베이 4개 12문제 중 4문제, 베이 5개 5문제 중 2문제에서 납기 순 투입이 더 좋았습니다. 베이 2개 문제에서는 11문제 중 1문제(33번)뿐입니다.</li>
+      <li><strong>진 폭은 문제마다 다릅니다.</strong> 11번은 0.1%, 6번과 34번은 1.3% 차이입니다. 4번(−14.1%), 33번(−17.7%)은 납기 순 투입에 뚜렷하게 졌고, 7번은 롤링 호라이즌을 뺀 쪽이 17.0% 좋았습니다.</li>
+      <li><strong>롤링 호라이즌을 빼면 문제에 따라 피해가 극단적으로 달라집니다.</strong> 40문제의 증감 중앙값은 +14.9%인데 평균은 +25.3%입니다. 16번(+225%), 33번(+118%), 35번(+73%), 27번(+60%)처럼 몇 문제가 크게 무너지기 때문입니다. 값이 100만 미만인 14문제의 합계는 +69.4%입니다.</li>
+      <li><strong>베이가 많을수록 롤링 호라이즌 쪽이, 베이가 적고 값이 클수록 사전최적화 쪽이 더 중요했습니다.</strong> 베이 4~5개 17문제 중 16문제에서 롤링 호라이즌 제거가 더 나빴습니다. 반대로 베이 2개 11문제 중 5문제(13, 25, 26, 36, 37번)에서는 사전최적화 제거가 더 나빴고, 이 중 네 문제가 블록 300개짜리 큰 문제입니다.</li>
+    </ul>
+    <div class="note">
+      <p><strong>여기서부터는 제 해석입니다.</strong></p>
+      <p>베이가 2개뿐이면 블록이 갈 곳이 둘이라 "어느 베이로 보낼까"보다 "누구를 먼저 넣을까"가 값을 좌우하고, 그것이 사전최적화가 맡은 일입니다. 베이가 많으면 배정의 경우의 수가 늘어나므로, 블록마다 끝자리에서 여러 베이를 시도해 볼 기회를 주는 롤링 호라이즌의 몫이 커집니다. 다음 부에서 볼 Z₃(선호 벌점)의 변화와도 맞는 설명입니다.</p>
+      <p>다만 40문제의 가중치와 입력을 볼 수 없어서 이 설명을 직접 확인하지는 못했습니다. 그리고 설정마다 한 번씩만 실행한 결과입니다. 보고서는 실행 간 편차를 제시하지 않으므로, 1% 안팎의 차이는 우열로 읽기 어렵습니다.</p>
+    </div>
+    <p>전체 해법이 진 문제가 있다는 사실 자체도 정보입니다. 추상 사전최적화가 낸 순서가 항상 납기 순보다 좋은 것은 아닙니다. 저자가 4부의 개선 방향에서 가장 먼저 꼽는 것이 이 부분입니다.</p>
+  </section>
+
+  <!-- ================= 2부 ================= -->
+  <div class="part">2부 · 항목별로 나눠 보면</div>
+
+  <section>
+    <h2>항목별 합계 표</h2>
+    <div class="scroll">
+    <table style="font-variant-numeric:tabular-nums">
+      <thead><tr><th>항목</th><th style="text-align:right">전체 해법</th><th style="text-align:right">합계 중 비중</th><th style="text-align:right">사전최적화 제거</th><th style="text-align:right">증감</th><th style="text-align:right">롤링 호라이즌 제거</th><th style="text-align:right">증감</th></tr></thead>
+      <tbody>
+        <tr><td>Z₁ 지연</td><td style="text-align:right"><strong>412,209,673</strong></td><td style="text-align:right">92.0%</td><td style="text-align:right">455,157,137</td><td style="text-align:right">+10.42%</td><td style="text-align:right">452,373,802</td><td style="text-align:right">+9.74%</td></tr>
+        <tr><td>Z₂ 작업량 불균형</td><td style="text-align:right">534,593</td><td style="text-align:right">0.1%</td><td style="text-align:right">520,229</td><td style="text-align:right">−2.69%</td><td style="text-align:right"><strong>428,491</strong></td><td style="text-align:right">−19.85%</td></tr>
+        <tr><td>Z₃ 선호 벌점</td><td style="text-align:right"><strong>35,526,753</strong></td><td style="text-align:right">7.9%</td><td style="text-align:right">38,580,980</td><td style="text-align:right">+8.60%</td><td style="text-align:right">43,548,790</td><td style="text-align:right">+22.58%</td></tr>
+        <tr><td>합계</td><td style="text-align:right"><strong>448,271,019</strong></td><td style="text-align:right">100%</td><td style="text-align:right">494,258,346</td><td style="text-align:right">+10.26%</td><td style="text-align:right">496,351,083</td><td style="text-align:right">+10.73%</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="src">보고서 Table 1("Aggregated objective values on the training dataset")입니다. 증감은 보고서 본문에 적힌 값과 같고(Z₂의 증감과 비중 열은 직접 계산), 세 행을 더하면 합계 행과 정확히 일치합니다. 따라서 이 표의 Z₁, Z₂, Z₃는 가중치를 곱한 값(w₁Z₁ 등)을 40문제에 걸쳐 더한 것입니다.</p>
+  </section>
+
+  <section>
+    <h2>읽는 법</h2>
+    <ul class="plain">
+      <li><strong>승부는 지연에서 납니다.</strong> 합계의 92%가 지연 항목입니다. 1장에서 본 "하루 지연의 벌점이 가장 크다"가 합계에서도 그대로 나타납니다.</li>
+      <li><strong>두 제거 실험 모두 Z₂는 오히려 좋아졌습니다.</strong> 사전최적화 제거가 −2.7%, 롤링 호라이즌 제거가 −19.9%입니다. 하지만 Z₂는 합계의 0.1%입니다. 롤링 호라이즌 제거에서 Z₂로 얻은 이득은 약 10만이고, Z₁과 Z₃에서 잃은 것은 약 4,800만입니다. 보고서도 이 이득이 지배적인 두 항목의 악화에 묻혔다고 적습니다.</li>
+      <li><strong>사전최적화를 빼면 주로 지연이 늘어납니다.</strong> Z₁ +10.4%, Z₃ +8.6%입니다. 보고서는 이를 용량 완화 모델의 의도와 맞는 결과라고 해석합니다. 블록 사이의 자리 경쟁을 반영한 투입 순서가 납기 순보다 낫다는 것입니다.</li>
+      <li><strong>롤링 호라이즌을 빼면 선호 벌점이 특히 크게 늘어납니다.</strong> Z₁ +9.7%에 비해 Z₃는 +22.6%입니다. 저자의 해석은 이렇습니다. 롤링 호라이즌에서는 모든 블록이 한 번은 부분 일정의 끝자리에 놓이고, 그때는 뒤에 얽힌 블록이 적어서 옮기기 쉽습니다. 이 여유가 더 나은 베이 배정을 고르는 데 도움이 된다는 것입니다.</li>
+    </ul>
+    <div class="note">
+      <p><strong>Z₂가 왜 줄었는지는 보고서에 설명이 없습니다.</strong></p>
+      <p>코드에서 확인되는 사실 하나는 있습니다. w₂는 마지막 호라이즌에서만 켜집니다(<span class="mono">src/solver/optimize.rs:257</span>의 <code>horizon_w2</code>). 롤링 호라이즌을 빼면 호라이즌이 하나뿐이고 그것이 곧 마지막 호라이즌이므로, 탐색 시간 전체에 걸쳐 w₂가 켜져 있습니다. 전체 해법은 8~15개의 호라이즌(블록 150~300개를 20개씩) 중 마지막 하나에서만 Z₂를 봅니다. Z₂를 보는 시간이 긴 쪽이 Z₂가 작게 나온 것이므로 앞뒤는 맞습니다. 이것이 원인이라는 것은 제 추정이고, 실험으로 확인하지는 못했습니다.</p>
+    </div>
+  </section>
+
+  <!-- ================= 3부 ================= -->
+  <div class="part">3부 · 본선 결과</div>
+
+  <section>
+    <h2>본선 8문제의 실제 수치</h2>
+    <p>본선 평가는 숨겨진 8문제로 이뤄졌습니다. 그 결과가 발표 자료의 그림을 그린 스크립트 안에 숫자로 들어 있습니다. 39개 팀의 8문제 목적 함수 값이고, 첫 행이 tishii24입니다. 다른 팀의 이름은 스크립트에서 일부러 지웠다고 주석에 적혀 있습니다.</p>
+<pre><span class="c"># report/presentation-final/plot_final_ranking.py:10</span>
+<span class="c"># Objective values for all 39 teams in the source report.</span>
+<span class="c"># Other team names are intentionally omitted from the presentation artifact.</span>
+OBJECTIVES = np.array([
+    [1_569_964, 15_112_677, 3_950_969, 3_238_153, 4_354_002, 737_120, 12_950_147, 12_072_285],   <span class="c"># tishii24</span>
+    [1_941_056, 15_275_645, 4_162_717, 3_536_654, 4_812_910, 792_055, 12_244_250, 14_449_265],
+    [1_794_442, 16_415_669, 4_265_813, 3_288_730, 5_171_244, 794_938, 14_365_981, 14_916_568],
+    …                                                                                            <span class="c"># 모두 39행 × 8열</span>
+])</pre>
+    <p>이 배열에서 문제마다 "다른 38개 팀 중 가장 좋은 값"을 뽑아 tishii24와 비교하면 아래 표가 됩니다.</p>
+    <div class="scroll">
+    <table style="font-variant-numeric:tabular-nums">
+      <thead><tr><th>문제</th><th style="text-align:right">tishii24</th><th style="text-align:right">다른 팀 최고</th><th style="text-align:right">차이</th><th style="text-align:right">다른 팀 중앙값</th><th style="text-align:right">중앙값 대비</th><th style="text-align:right">더 좋은 팀 수 nb</th><th style="text-align:right">등수 점수 39 − nb</th></tr></thead>
+      <tbody>
+        <tr><td>P1</td><td style="text-align:right"><strong>1,569,964</strong></td><td style="text-align:right">1,794,442</td><td style="text-align:right">−12.5%</td><td style="text-align:right">2,596,228</td><td style="text-align:right">−39.5%</td><td style="text-align:right">0</td><td style="text-align:right">39</td></tr>
+        <tr><td>P2</td><td style="text-align:right"><strong>15,112,677</strong></td><td style="text-align:right">15,275,645</td><td style="text-align:right">−1.1%</td><td style="text-align:right">18,934,582</td><td style="text-align:right">−20.2%</td><td style="text-align:right">0</td><td style="text-align:right">39</td></tr>
+        <tr><td>P3</td><td style="text-align:right"><strong>3,950,969</strong></td><td style="text-align:right">4,162,717</td><td style="text-align:right">−5.1%</td><td style="text-align:right">5,320,340</td><td style="text-align:right">−25.7%</td><td style="text-align:right">0</td><td style="text-align:right">39</td></tr>
+        <tr><td>P4</td><td style="text-align:right"><strong>3,238,153</strong></td><td style="text-align:right">3,288,730</td><td style="text-align:right">−1.5%</td><td style="text-align:right">4,751,784</td><td style="text-align:right">−31.9%</td><td style="text-align:right">0</td><td style="text-align:right">39</td></tr>
+        <tr><td>P5</td><td style="text-align:right"><strong>4,354,002</strong></td><td style="text-align:right">4,812,910</td><td style="text-align:right">−9.5%</td><td style="text-align:right">6,058,350</td><td style="text-align:right">−28.1%</td><td style="text-align:right">0</td><td style="text-align:right">39</td></tr>
+        <tr><td>P6</td><td style="text-align:right"><strong>737,120</strong></td><td style="text-align:right">792,055</td><td style="text-align:right">−6.9%</td><td style="text-align:right">986,272</td><td style="text-align:right">−25.3%</td><td style="text-align:right">0</td><td style="text-align:right">39</td></tr>
+        <tr><td>P7</td><td style="text-align:right">12,950,147</td><td style="text-align:right"><strong>12,244,250</strong></td><td style="text-align:right">+5.8%</td><td style="text-align:right">16,633,955</td><td style="text-align:right">−22.1%</td><td style="text-align:right">1</td><td style="text-align:right">38</td></tr>
+        <tr><td>P8</td><td style="text-align:right"><strong>12,072,285</strong></td><td style="text-align:right">13,670,227</td><td style="text-align:right">−11.7%</td><td style="text-align:right">17,406,418</td><td style="text-align:right">−30.6%</td><td style="text-align:right">0</td><td style="text-align:right">39</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="src">값은 스크립트의 배열 그대로이고, 차이·중앙값·nb·등수 점수는 직접 계산했습니다. 차이 열은 발표 자료 8쪽의 그림에 적힌 값(12.5%, 1.1%, 5.1%, 1.5%, 9.5%, 6.9%, 5.8%, 11.7%)과 일치합니다.</p>
+    <figure>
+      <div class="scroll">
+        <svg viewBox="0 0 720 312" role="img" aria-label="본선 8문제에서 본선 39개 팀의 목적 함수 값을 다른 팀 최고 기록을 100으로 놓고 그린 그림. tishii24는 일곱 문제에서 100보다 왼쪽에 있고 P7에서만 105.8로 오른쪽에 있다. 다른 팀들은 대부분 100에서 190 사이에 퍼져 있다.">
+        <circle cx="126" cy="14" r="5" class="f-steel" stroke-width="1.5"/>
+        <text x="137" y="18" font-size="12" fill="currentColor">tishii24</text>
+        <line x1="206" y1="8" x2="206" y2="20" class="s-muted" stroke-width="1.4"/>
+        <text x="214" y="18" font-size="12" fill="currentColor">다른 본선 팀 (38팀, 팀마다 선 하나)</text>
+        <text x="712" y="18" font-size="11" class="t-muted" text-anchor="end">왼쪽일수록 좋음</text>
+        <line x1="120.0" y1="36" x2="120.0" y2="258" class="s-muted" stroke-width=".5"/>
+        <text x="120.0" y="274" font-size="11" class="t-muted" text-anchor="middle">80</text>
+        <text x="198.0" y="274" font-size="11" class="t-muted" text-anchor="middle">100</text>
+        <line x1="276.0" y1="36" x2="276.0" y2="258" class="s-muted" stroke-width=".5"/>
+        <text x="276.0" y="274" font-size="11" class="t-muted" text-anchor="middle">120</text>
+        <line x1="354.0" y1="36" x2="354.0" y2="258" class="s-muted" stroke-width=".5"/>
+        <text x="354.0" y="274" font-size="11" class="t-muted" text-anchor="middle">140</text>
+        <line x1="432.0" y1="36" x2="432.0" y2="258" class="s-muted" stroke-width=".5"/>
+        <text x="432.0" y="274" font-size="11" class="t-muted" text-anchor="middle">160</text>
+        <line x1="510.0" y1="36" x2="510.0" y2="258" class="s-muted" stroke-width=".5"/>
+        <text x="510.0" y="274" font-size="11" class="t-muted" text-anchor="middle">180</text>
+        <line x1="588.0" y1="36" x2="588.0" y2="258" class="s-muted" stroke-width=".5"/>
+        <text x="588.0" y="274" font-size="11" class="t-muted" text-anchor="middle">200</text>
+        <line x1="666.0" y1="36" x2="666.0" y2="258" class="s-muted" stroke-width=".5"/>
+        <text x="666.0" y="274" font-size="11" class="t-muted" text-anchor="middle">220</text>
+        <line x1="198.0" y1="36" x2="198.0" y2="258" class="s-line" stroke-width="1.2" stroke-dasharray="5 4"/>
+        <text x="203.0" y="32" font-size="11" fill="currentColor">다른 팀 최고 기록 = 100</text>
+        <text x="14" y="32" font-size="11" class="t-muted">문제</text>
+        <text x="104" y="32" font-size="11" class="t-muted" text-anchor="end">최고 기록 대비</text>
+        <text x="14" y="56" font-size="12" font-weight="700" fill="currentColor">P1</text>
+        <text x="104" y="56" font-size="12" fill="currentColor" text-anchor="end">−12.5%</text>
+        <line x1="229.9" y1="45" x2="229.9" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="198.0" y1="45" x2="198.0" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="303.1" y1="45" x2="303.1" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="220.3" y1="45" x2="220.3" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="225.0" y1="45" x2="225.0" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="262.6" y1="45" x2="262.6" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="370.6" y1="45" x2="370.6" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="236.0" y1="45" x2="236.0" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="239.0" y1="45" x2="239.0" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="274.4" y1="45" x2="274.4" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="303.5" y1="45" x2="303.5" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="326.8" y1="45" x2="326.8" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="409.1" y1="45" x2="409.1" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="215.9" y1="45" x2="215.9" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="434.3" y1="45" x2="434.3" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="431.6" y1="45" x2="431.6" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="383.6" y1="45" x2="383.6" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="373.7" y1="45" x2="373.7" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="318.0" y1="45" x2="318.0" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="356.9" y1="45" x2="356.9" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="425.8" y1="45" x2="425.8" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="463.4" y1="45" x2="463.4" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="370.8" y1="45" x2="370.8" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="296.9" y1="45" x2="296.9" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="385.5" y1="45" x2="385.5" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="407.7" y1="45" x2="407.7" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="519.7" y1="45" x2="519.7" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="377.4" y1="45" x2="377.4" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="507.0" y1="45" x2="507.0" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="351.7" y1="45" x2="351.7" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="553.3" y1="45" x2="553.3" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="402.2" y1="45" x2="402.2" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="405.3" y1="45" x2="405.3" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="509.3" y1="45" x2="509.3" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="362.9" y1="45" x2="362.9" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="453.4" y1="45" x2="453.4" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="444.6" y1="45" x2="444.6" y2="59" class="s-muted" stroke-width="1.2"/>
+        <line x1="529.9" y1="45" x2="529.9" y2="59" class="s-muted" stroke-width="1.2"/>
+        <circle cx="149.2" cy="52" r="5" class="f-steel" stroke-width="1.5"><title>P1 · tishii24 1,569,964 · 다른 팀 최고 1,794,442 · −12.5%</title></circle>
+        <text x="14" y="83" font-size="12" font-weight="700" fill="currentColor">P2</text>
+        <text x="104" y="83" font-size="12" fill="currentColor" text-anchor="end">−1.1%</text>
+        <line x1="198.0" y1="72" x2="198.0" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="227.1" y1="72" x2="227.1" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="210.6" y1="72" x2="210.6" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="220.2" y1="72" x2="220.2" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="216.7" y1="72" x2="216.7" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="270.8" y1="72" x2="270.8" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="242.2" y1="72" x2="242.2" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="296.9" y1="72" x2="296.9" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="233.0" y1="72" x2="233.0" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="265.9" y1="72" x2="265.9" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="228.5" y1="72" x2="228.5" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="284.5" y1="72" x2="284.5" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="266.4" y1="72" x2="266.4" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="301.8" y1="72" x2="301.8" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="282.1" y1="72" x2="282.1" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="263.4" y1="72" x2="263.4" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="281.7" y1="72" x2="281.7" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="265.2" y1="72" x2="265.2" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="322.6" y1="72" x2="322.6" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="306.6" y1="72" x2="306.6" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="281.9" y1="72" x2="281.9" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="291.9" y1="72" x2="291.9" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="296.5" y1="72" x2="296.5" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="293.3" y1="72" x2="293.3" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="355.4" y1="72" x2="355.4" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="286.6" y1="72" x2="286.6" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="313.6" y1="72" x2="313.6" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="308.1" y1="72" x2="308.1" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="295.1" y1="72" x2="295.1" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="335.9" y1="72" x2="335.9" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="290.9" y1="72" x2="290.9" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="387.4" y1="72" x2="387.4" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="340.0" y1="72" x2="340.0" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="306.5" y1="72" x2="306.5" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="399.9" y1="72" x2="399.9" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="346.4" y1="72" x2="346.4" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="395.1" y1="72" x2="395.1" y2="86" class="s-muted" stroke-width="1.2"/>
+        <line x1="457.1" y1="72" x2="457.1" y2="86" class="s-muted" stroke-width="1.2"/>
+        <circle cx="193.8" cy="79" r="5" class="f-steel" stroke-width="1.5"><title>P2 · tishii24 15,112,677 · 다른 팀 최고 15,275,645 · −1.1%</title></circle>
+        <text x="14" y="110" font-size="12" font-weight="700" fill="currentColor">P3</text>
+        <text x="104" y="110" font-size="12" fill="currentColor" text-anchor="end">−5.1%</text>
+        <line x1="198.0" y1="99" x2="198.0" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="207.7" y1="99" x2="207.7" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="253.8" y1="99" x2="253.8" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="201.8" y1="99" x2="201.8" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="232.3" y1="99" x2="232.3" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="201.4" y1="99" x2="201.4" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="306.9" y1="99" x2="306.9" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="283.2" y1="99" x2="283.2" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="243.8" y1="99" x2="243.8" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="262.0" y1="99" x2="262.0" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="260.6" y1="99" x2="260.6" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="280.9" y1="99" x2="280.9" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="332.5" y1="99" x2="332.5" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="252.3" y1="99" x2="252.3" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="286.7" y1="99" x2="286.7" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="268.1" y1="99" x2="268.1" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="306.0" y1="99" x2="306.0" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="345.6" y1="99" x2="345.6" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="281.1" y1="99" x2="281.1" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="304.5" y1="99" x2="304.5" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="390.8" y1="99" x2="390.8" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="375.1" y1="99" x2="375.1" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="349.7" y1="99" x2="349.7" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="308.4" y1="99" x2="308.4" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="305.8" y1="99" x2="305.8" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="336.7" y1="99" x2="336.7" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="377.3" y1="99" x2="377.3" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="317.0" y1="99" x2="317.0" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="372.7" y1="99" x2="372.7" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="322.1" y1="99" x2="322.1" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="372.1" y1="99" x2="372.1" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="371.8" y1="99" x2="371.8" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="362.9" y1="99" x2="362.9" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="304.6" y1="99" x2="304.6" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="352.1" y1="99" x2="352.1" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="393.8" y1="99" x2="393.8" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="404.0" y1="99" x2="404.0" y2="113" class="s-muted" stroke-width="1.2"/>
+        <line x1="421.4" y1="99" x2="421.4" y2="113" class="s-muted" stroke-width="1.2"/>
+        <circle cx="178.2" cy="106" r="5" class="f-steel" stroke-width="1.5"><title>P3 · tishii24 3,950,969 · 다른 팀 최고 4,162,717 · −5.1%</title></circle>
+        <text x="14" y="137" font-size="12" font-weight="700" fill="currentColor">P4</text>
+        <text x="104" y="137" font-size="12" fill="currentColor" text-anchor="end">−1.5%</text>
+        <line x1="227.4" y1="126" x2="227.4" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="198.0" y1="126" x2="198.0" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="226.6" y1="126" x2="226.6" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="240.8" y1="126" x2="240.8" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="267.0" y1="126" x2="267.0" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="317.4" y1="126" x2="317.4" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="257.4" y1="126" x2="257.4" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="284.0" y1="126" x2="284.0" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="273.0" y1="126" x2="273.0" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="329.1" y1="126" x2="329.1" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="362.4" y1="126" x2="362.4" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="340.8" y1="126" x2="340.8" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="306.1" y1="126" x2="306.1" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="377.6" y1="126" x2="377.6" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="379.2" y1="126" x2="379.2" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="351.9" y1="126" x2="351.9" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="401.7" y1="126" x2="401.7" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="340.5" y1="126" x2="340.5" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="291.9" y1="126" x2="291.9" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="365.4" y1="126" x2="365.4" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="389.6" y1="126" x2="389.6" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="353.2" y1="126" x2="353.2" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="402.7" y1="126" x2="402.7" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="424.4" y1="126" x2="424.4" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="329.0" y1="126" x2="329.0" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="430.5" y1="126" x2="430.5" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="411.4" y1="126" x2="411.4" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="440.0" y1="126" x2="440.0" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="494.1" y1="126" x2="494.1" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="511.7" y1="126" x2="511.7" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="433.5" y1="126" x2="433.5" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="388.7" y1="126" x2="388.7" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="458.8" y1="126" x2="458.8" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="531.1" y1="126" x2="531.1" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="513.4" y1="126" x2="513.4" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="463.7" y1="126" x2="463.7" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="496.0" y1="126" x2="496.0" y2="140" class="s-muted" stroke-width="1.2"/>
+        <line x1="480.8" y1="126" x2="480.8" y2="140" class="s-muted" stroke-width="1.2"/>
+        <circle cx="192.0" cy="133" r="5" class="f-steel" stroke-width="1.5"><title>P4 · tishii24 3,238,153 · 다른 팀 최고 3,288,730 · −1.5%</title></circle>
+        <text x="14" y="164" font-size="12" font-weight="700" fill="currentColor">P5</text>
+        <text x="104" y="164" font-size="12" fill="currentColor" text-anchor="end">−9.5%</text>
+        <line x1="198.0" y1="153" x2="198.0" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="227.0" y1="153" x2="227.0" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="217.7" y1="153" x2="217.7" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="267.7" y1="153" x2="267.7" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="268.0" y1="153" x2="268.0" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="259.7" y1="153" x2="259.7" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="234.0" y1="153" x2="234.0" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="260.2" y1="153" x2="260.2" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="217.5" y1="153" x2="217.5" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="277.5" y1="153" x2="277.5" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="296.8" y1="153" x2="296.8" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="297.4" y1="153" x2="297.4" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="279.2" y1="153" x2="279.2" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="308.7" y1="153" x2="308.7" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="272.8" y1="153" x2="272.8" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="302.3" y1="153" x2="302.3" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="292.9" y1="153" x2="292.9" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="300.5" y1="153" x2="300.5" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="345.3" y1="153" x2="345.3" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="311.3" y1="153" x2="311.3" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="274.8" y1="153" x2="274.8" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="319.9" y1="153" x2="319.9" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="282.3" y1="153" x2="282.3" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="338.1" y1="153" x2="338.1" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="378.0" y1="153" x2="378.0" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="341.8" y1="153" x2="341.8" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="288.7" y1="153" x2="288.7" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="314.5" y1="153" x2="314.5" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="356.5" y1="153" x2="356.5" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="442.4" y1="153" x2="442.4" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="296.4" y1="153" x2="296.4" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="407.4" y1="153" x2="407.4" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="386.4" y1="153" x2="386.4" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="391.5" y1="153" x2="391.5" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="411.8" y1="153" x2="411.8" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="367.8" y1="153" x2="367.8" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="344.2" y1="153" x2="344.2" y2="167" class="s-muted" stroke-width="1.2"/>
+        <line x1="508.0" y1="153" x2="508.0" y2="167" class="s-muted" stroke-width="1.2"/>
+        <circle cx="160.8" cy="160" r="5" class="f-steel" stroke-width="1.5"><title>P5 · tishii24 4,354,002 · 다른 팀 최고 4,812,910 · −9.5%</title></circle>
+        <text x="14" y="191" font-size="12" font-weight="700" fill="currentColor">P6</text>
+        <text x="104" y="191" font-size="12" fill="currentColor" text-anchor="end">−6.9%</text>
+        <line x1="198.0" y1="180" x2="198.0" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="199.4" y1="180" x2="199.4" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="242.4" y1="180" x2="242.4" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="245.6" y1="180" x2="245.6" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="222.5" y1="180" x2="222.5" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="241.4" y1="180" x2="241.4" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="263.8" y1="180" x2="263.8" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="244.8" y1="180" x2="244.8" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="293.0" y1="180" x2="293.0" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="271.8" y1="180" x2="271.8" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="287.1" y1="180" x2="287.1" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="293.4" y1="180" x2="293.4" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="252.7" y1="180" x2="252.7" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="274.4" y1="180" x2="274.4" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="265.1" y1="180" x2="265.1" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="276.0" y1="180" x2="276.0" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="277.4" y1="180" x2="277.4" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="288.4" y1="180" x2="288.4" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="316.6" y1="180" x2="316.6" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="304.5" y1="180" x2="304.5" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="293.8" y1="180" x2="293.8" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="284.2" y1="180" x2="284.2" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="299.1" y1="180" x2="299.1" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="318.6" y1="180" x2="318.6" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="305.9" y1="180" x2="305.9" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="324.3" y1="180" x2="324.3" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="311.9" y1="180" x2="311.9" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="338.1" y1="180" x2="338.1" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="321.5" y1="180" x2="321.5" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="318.8" y1="180" x2="318.8" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="324.5" y1="180" x2="324.5" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="335.9" y1="180" x2="335.9" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="330.6" y1="180" x2="330.6" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="351.5" y1="180" x2="351.5" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="358.5" y1="180" x2="358.5" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="370.6" y1="180" x2="370.6" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="331.2" y1="180" x2="331.2" y2="194" class="s-muted" stroke-width="1.2"/>
+        <line x1="350.4" y1="180" x2="350.4" y2="194" class="s-muted" stroke-width="1.2"/>
+        <circle cx="171.0" cy="187" r="5" class="f-steel" stroke-width="1.5"><title>P6 · tishii24 737,120 · 다른 팀 최고 792,055 · −6.9%</title></circle>
+        <text x="14" y="218" font-size="12" font-weight="700" fill="currentColor">P7</text>
+        <text x="104" y="218" font-size="12" fill="currentColor" text-anchor="end">+5.8%</text>
+        <line x1="198.0" y1="207" x2="198.0" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="265.6" y1="207" x2="265.6" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="251.1" y1="207" x2="251.1" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="258.7" y1="207" x2="258.7" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="283.5" y1="207" x2="283.5" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="251.5" y1="207" x2="251.5" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="282.2" y1="207" x2="282.2" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="306.5" y1="207" x2="306.5" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="310.7" y1="207" x2="310.7" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="339.4" y1="207" x2="339.4" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="336.2" y1="207" x2="336.2" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="290.7" y1="207" x2="290.7" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="319.4" y1="207" x2="319.4" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="336.0" y1="207" x2="336.0" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="317.3" y1="207" x2="317.3" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="306.8" y1="207" x2="306.8" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="325.9" y1="207" x2="325.9" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="333.8" y1="207" x2="333.8" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="309.7" y1="207" x2="309.7" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="340.4" y1="207" x2="340.4" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="385.3" y1="207" x2="385.3" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="328.6" y1="207" x2="328.6" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="381.4" y1="207" x2="381.4" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="382.2" y1="207" x2="382.2" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="373.6" y1="207" x2="373.6" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="371.3" y1="207" x2="371.3" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="387.4" y1="207" x2="387.4" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="435.9" y1="207" x2="435.9" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="370.5" y1="207" x2="370.5" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="459.9" y1="207" x2="459.9" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="435.4" y1="207" x2="435.4" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="472.4" y1="207" x2="472.4" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="380.4" y1="207" x2="380.4" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="479.7" y1="207" x2="479.7" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="461.1" y1="207" x2="461.1" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="667.8" y1="207" x2="667.8" y2="221" class="s-muted" stroke-width="1.2"/>
+        <line x1="455.6" y1="207" x2="455.6" y2="221" class="s-muted" stroke-width="1.2"/>
+        <circle cx="220.5" cy="214" r="5" class="f-steel" stroke-width="1.5"><title>P7 · tishii24 12,950,147 · 다른 팀 최고 12,244,250 · +5.8%</title></circle>
+        <text x="14" y="245" font-size="12" font-weight="700" fill="currentColor">P8</text>
+        <text x="104" y="245" font-size="12" fill="currentColor" text-anchor="end">−11.7%</text>
+        <line x1="220.2" y1="234" x2="220.2" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="233.6" y1="234" x2="233.6" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="198.0" y1="234" x2="198.0" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="203.9" y1="234" x2="203.9" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="222.9" y1="234" x2="222.9" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="281.7" y1="234" x2="281.7" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="253.8" y1="234" x2="253.8" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="222.0" y1="234" x2="222.0" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="306.8" y1="234" x2="306.8" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="273.2" y1="234" x2="273.2" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="260.7" y1="234" x2="260.7" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="280.6" y1="234" x2="280.6" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="254.8" y1="234" x2="254.8" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="289.1" y1="234" x2="289.1" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="254.5" y1="234" x2="254.5" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="305.3" y1="234" x2="305.3" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="278.3" y1="234" x2="278.3" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="299.0" y1="234" x2="299.0" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="339.1" y1="234" x2="339.1" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="319.8" y1="234" x2="319.8" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="295.7" y1="234" x2="295.7" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="303.9" y1="234" x2="303.9" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="308.5" y1="234" x2="308.5" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="307.1" y1="234" x2="307.1" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="307.6" y1="234" x2="307.6" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="344.2" y1="234" x2="344.2" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="299.2" y1="234" x2="299.2" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="341.4" y1="234" x2="341.4" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="325.4" y1="234" x2="325.4" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="333.6" y1="234" x2="333.6" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="377.7" y1="234" x2="377.7" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="379.9" y1="234" x2="379.9" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="357.7" y1="234" x2="357.7" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="423.1" y1="234" x2="423.1" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="373.3" y1="234" x2="373.3" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="347.3" y1="234" x2="347.3" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="373.7" y1="234" x2="373.7" y2="248" class="s-muted" stroke-width="1.2"/>
+        <line x1="432.7" y1="234" x2="432.7" y2="248" class="s-muted" stroke-width="1.2"/>
+        <circle cx="152.4" cy="241" r="5" class="f-steel" stroke-width="1.5"><title>P8 · tishii24 12,072,285 · 다른 팀 최고 13,670,227 · −11.7%</title></circle>
+        <path d="M694,214 h14 m-5,-4 l5,4 l-5,4" class="s-muted" stroke-width="1.2"/>
+        <text x="712" y="205" font-size="10" class="t-muted" text-anchor="end">한 팀은 1,297</text>
+        <text x="14" y="306" font-size="11" class="t-muted">가로축 = 목적 함수 값 ÷ 그 문제의 다른 팀 최고 기록 × 100</text>
+        </svg>
+      </div>
+      <figcaption>문제마다 다른 팀 최고 기록을 100으로 놓고 39개 팀을 한 줄에 그렸습니다. 왼쪽 숫자는 tishii24가 그 기록보다 얼마나 낮은지(−) 또는 높은지(+)입니다. P7의 한 팀은 값이 약 1억 5,885만으로 축 밖에 있습니다. 출처: <span class="mono">plot_final_ranking.py</span>의 배열, 계산은 직접.</figcaption>
+    </figure>
+    <ul class="plain">
+      <li><strong>8문제 중 7문제에서 1위입니다.</strong> 차이는 −1.1%(P2)에서 −12.5%(P1)까지이고, 8문제 평균은 −5.3%입니다. 스크립트가 출력하는 <span class="mono">mean_reduction_percent</span>가 이 값입니다.</li>
+      <li><strong>P7에서만 한 팀에 5.8% 뒤졌습니다.</strong> 그 문제에서도 39개 팀 중 2위입니다.</li>
+      <li><strong>참가 팀 전체와 비교하면 차이가 더 큽니다.</strong> 다른 팀의 중앙값보다 20~40% 낮습니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>1장의 채점 방식에 넣어 보면</h2>
+    <p>1장에서 본 대로 순위는 값의 합이 아니라 문제별 등수 점수 <span class="mono">R − nb</span>의 합으로 매깁니다. R은 평가된 팀 수, nb는 나보다 좋은 값을 낸 팀 수입니다. 위 배열에 이 식을 그대로 적용하면 이렇습니다.</p>
+    <div class="formula">tishii24 = 39 × 7 + 38 = 311점 &nbsp;(만점 39 × 8 = 312점)</div>
+    <p>같은 방식으로 나머지 팀도 계산하면 둘째 행이 297점, 셋째 행이 284점이고, 배열의 39행은 이 점수가 높은 순서대로 놓여 있습니다. 이 채점 방식에서는 한 문제를 크게 이기는 것보다 모든 문제에서 고르게 앞서는 것이 중요합니다. 12.5% 앞선 P1도, 1.1% 앞선 P2도 똑같이 39점입니다. 무효한 해 하나는 −1점이므로 그 한 문제에서 40점을 잃습니다. 이 해법이 유효성 재검증과 시간 여유에 공을 들인 이유입니다.</p>
+    <p>최종 순위는 이 자동 채점에 보고서와 발표 평가를 더해 정해졌습니다. README가 연결한 기사에 따르면 대회에는 55개국 958개 팀 1,448명이 참가했고, 1인 팀 tishii24가 94점으로 1위, 2위가 90점, 3위가 86점이었습니다. 시상식은 2026년 9월 18일에 열렸습니다.</p>
+    <p class="src">311점은 제가 스크립트의 수치로 계산한 값이고 공식 점수표가 아닙니다. 94점이 어떻게 구성되는지, 본선 8문제의 베이 수·블록 수·제한 시간은 저장소에서 확인하지 못했습니다. P7에서 왜 뒤졌는지도 자료에 없습니다. 기사: 동아일보 2026-09-21, README의 news 링크.</p>
+  </section>
+
+  <section>
+    <h2>보고서와 발표 자료의 수치가 다른 이유</h2>
+    <p>2장의 표에서 두 자료의 증감률이 서로 다르다는 것을 봤습니다. 합계와 함께 나란히 놓으면 이렇습니다.</p>
+    <div class="scroll">
+    <table style="font-variant-numeric:tabular-nums">
+      <thead><tr><th>설정</th><th style="text-align:right">보고서 Table 1</th><th style="text-align:right">증감</th><th style="text-align:right">발표 자료의 그래프</th><th style="text-align:right">증감</th></tr></thead>
+      <tbody>
+        <tr><td>전체 해법</td><td style="text-align:right">448.3M</td><td style="text-align:right"></td><td style="text-align:right">430.3M</td><td style="text-align:right"></td></tr>
+        <tr><td>사전최적화 제거</td><td style="text-align:right">494.3M</td><td style="text-align:right">+10.3%</td><td style="text-align:right">482.2M</td><td style="text-align:right">+12.1%</td></tr>
+        <tr><td>큰 재구성 제거</td><td style="text-align:right">실험 없음</td><td style="text-align:right"></td><td style="text-align:right">475.6M</td><td style="text-align:right">+10.5%</td></tr>
+        <tr><td>롤링 호라이즌 제거</td><td style="text-align:right">496.4M</td><td style="text-align:right">+10.7%</td><td style="text-align:right">592.4M</td><td style="text-align:right">+37.7%</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="src">M = 100만. 발표 자료 쪽은 예선 발표 15쪽과 최종 발표 7쪽의 같은 그래프입니다. +12.1%와 +10.5%는 그래프의 값으로 계산했고, +37.7%는 예선 발표 15쪽에 적혀 있습니다.</p>
+    <p>두 자료가 적은 실험 조건은 같습니다. 학습 40문제, 300초, Apple M1 Pro입니다. 다른 것은 <strong>솔버의 버전</strong>입니다. 저장소에서 확인되는 근거는 세 가지입니다.</p>
+    <ul class="plain">
+      <li><strong>보고서의 표는 8월 4일의 솔버로 만든 것입니다.</strong> 합계 448,271,019는 커밋 <span class="mono">d7c24ac</span>("report: draft", 2026-08-04)에서 처음 들어왔고 그 뒤로 바뀌지 않았습니다. 롤링 호라이즌이 도입된 것이 바로 전날인 8월 3일입니다(커밋 <span class="mono">a5df6de</span>, "094: introduce rolling-horizon").</li>
+      <li><strong>발표 자료의 그래프는 최종 버전으로 만든 것입니다.</strong> 그림 스크립트 <span class="mono">report/presentation/plot_ablation_results.py:14</span>는 버전 <span class="mono">122</span>를 "Solution"으로, <span class="mono">000-no-preoptimize</span>, <span class="mono">000-no-reconstruct</span>, <span class="mono">000-no-rolling-horizon</span>을 제거 실험으로 읽습니다. 122는 8월 11일의 커밋입니다(<span class="mono">c35922f</span>).</li>
+      <li><strong>저자가 직접 그렇게 적었습니다.</strong> 지금은 삭제된 예선 발표 계획서에 "최종 버전을 쓴 실험 결과라서 보고서와 수치가 달라졌다"는 뜻의 메모가 있습니다(<span class="mono">git show fb5671f:report/presentation/plan.md</span>, 원문은 일본어).</li>
+    </ul>
+    <p>두 시점 사이에 솔버는 꽤 바뀌었습니다. 8월 4일의 보고서 초안은 재가열과 타부를 해법의 일부로 설명하는데, 둘 다 그 뒤에 빠졌습니다(4부). 워커마다 다른 앵커를 쓰는 방식(8월 11일, "115: change anchor per worker")도 그 사이에 들어왔습니다. 발표 자료에는 큰 재구성의 확률을 0으로 둔 세 번째 제거 실험도 추가됐습니다.</p>
+    <p class="src">확인하지 못한 것: 롤링 호라이즌 제거의 격차가 +10.7%에서 +37.7%로 커진 이유는 어느 자료에도 설명이 없습니다. <span class="mono">000-no-*</span> 버전들이 어떤 코드와 파라미터로 만들어졌는지, 스크립트가 읽는 <span class="mono">suites/final.json</span>과 <span class="mono">log/score.csv</span>의 내용도 저장소에 없습니다. 보고서의 본문은 8월 20~24일에 최종 코드에 맞춰 고쳐졌지만(커밋 "align report to src") 표의 숫자는 8월 4일의 것이 남아 있습니다.</p>
+  </section>
+
+  <!-- ================= 4부 ================= -->
+  <div class="part">4부 · 버린 것과 남은 과제</div>
+
+  <section>
+    <h2>실패한 시도들</h2>
+    <p>보고서의 "Key Ideas that Failed" 절은 두 문단입니다. 아홉 가지 시도가 나오고, 이유가 따로 적힌 것은 앞의 둘뿐입니다. 나머지는 "시험했고 버렸다"로 묶여 있고, 문단 끝에 "이 변형들은 부담만 늘렸거나 문제 전반에서 일관된 개선이 없었다"는 한 문장이 붙어 있습니다. 아래 표의 셋째 열은 보고서와 발표 자료가 적은 만큼만 옮겼습니다. 넷째 열은 제가 git 기록과 코드에서 찾은 흔적입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>시도</th><th>무엇을 노렸나</th><th>왜 버렸나 (자료가 적은 만큼)</th><th>저장소에 남은 흔적</th></tr></thead>
+      <tbody>
+        <tr><td>빔 서치 재구성</td><td>같은 기준 일정에 대한 삽입 결과를 여러 탐색 상태가 재사용해서, 재삽입 순서를 더 싸게 탐색</td><td>삽입 결과를 재사용하는 것보다 다양한 배치 상태를 탐색하는 것이 더 중요했다</td><td><span class="mono">af462f3</span> "080: reconstruct-beam" → 같은 날 <span class="mono">6270fa6</span> "remove beam-reconstruct" (7월 31일). 파일 <span class="mono">beam_reconstruct.rs</span>는 7월 28일에 처음 생김</td></tr>
+        <tr><td>목적 항목별 다단계 최적화</td><td>지연, 선호, 작업량 불균형을 단계를 나눠 따로 최적화</td><td>표준 탐색보다 뚜렷한 이점이 없었다</td><td><span class="mono">aa54788</span> "087: test multi stage optimization" → 다음 날 되돌림 (8월 1~2일)</td></tr>
+        <tr><td>최선 해로 돌아가 킥을 주는 재가열</td><td>정체되면 워커가 자기 최선 해로 돌아가 온도를 잠시 올려 빠져나옴 (8월 4일 보고서 초안의 설명)</td><td>따로 적힌 이유 없음</td><td>"036: kick"(7월 2일, 당일 되돌림), "069: reheat", "083: reheat" → <span class="mono">95b9a62</span> "remove reheat" (8월 6일)</td></tr>
+        <tr><td>해시 기반 타부</td><td>일정의 해시를 기억해 같은 상태로 금방 되돌아가는 것을 막음 (같은 초안의 설명)</td><td>따로 적힌 이유 없음</td><td><span class="mono">9e46391</span> "033: tabu search"(7월 2일) → <span class="mono">58d0177</span> "105-3: remove tabu, …" (8월 9일)</td></tr>
+        <tr><td>w₂ 점진 도입</td><td>마지막 호라이즌에서 갑자기 켜는 대신 진행에 따라 w₂를 조금씩 키움</td><td>따로 적힌 이유 없음</td><td>코드가 남아 있음. <span class="mono">src/params.rs:57</span>의 <code>horizon_w2_power</code>, <span class="mono">src/solver/optimize.rs:257</span></td></tr>
+        <tr><td>같은 시각 작업 순서 최적화</td><td>같은 날의 EXIT·ENTRY를 어떤 순서로 적을지까지 탐색에 포함</td><td>따로 적힌 이유 없음</td><td>이름으로 찾을 수 있는 커밋 없음. 삭제된 할 일 목록의 "rejected"에 항목이 있음</td></tr>
+        <tr><td>출고 시각 교환에 의한 시간 변경</td><td>출고 시각을 바꿔 두 블록의 입출고 순서를 뒤바꿈</td><td>따로 적힌 이유 없음</td><td>이름으로 찾을 수 있는 커밋 없음. 같은 목록에 "ABBA ↔ ABAB 교체"로 적혀 있음</td></tr>
+        <tr><td>관측된 차이에 기반한 적응형 온도</td><td>탐색 중 관측한 목적 함수 값의 차이에서 온도를 정함</td><td>유망해 보였지만 문제 전반에서 일관되게 통하는 설정을 찾기 어려웠다 (8월 4일 초안)</td><td><span class="mono">ca6459f</span> "adaptive annealing" → 같은 날 되돌림 (8월 2일)</td></tr>
+        <tr><td>가림 블록을 직접 제거하는 이웃</td><td>크레인 작업을 막고 있는 블록, 즉 가리는 블록을 골라서 빼냄</td><td>유망했지만 일관되게 조정하기 어려웠다 (예선 발표 11쪽)</td><td><span class="mono">43d41fb</span> "blocker remove" → 같은 날 되돌림 (8월 2일)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="src">보고서 "Key Ideas that Failed", 예선 발표 11쪽, 8월 4일 초안(<span class="mono">git show d7c24ac</span>의 같은 절과 SA 문단). 삭제된 할 일 목록은 <span class="mono">git show fb5671f^:doc/todo.md</span>입니다. "출고 시각 교환"의 설명은 보고서의 한 구절("temporal changes based on exchanging exit times")과 할 일 목록의 한 줄뿐이라, 구체적인 방식은 확인하지 못했습니다.</p>
+
+    <h3>남아 있는 코드: w₂ 점진 도입</h3>
+    <p>6장 3부에서 본 <code>horizon_w2</code> 함수입니다(<span class="mono">src/solver/optimize.rs:257</span>). 파라미터 <code>horizon_w2_power</code>에 값이 있으면 w₂에 진행률의 거듭제곱을 곱해 조금씩 켜고, 없으면 마지막 호라이즌에서만 켭니다. <span class="mono">params/default.yaml</span>에는 이 항목이 없어서 뒤쪽이 실행됩니다. 실험용 스위치를 지우지 않고 꺼 둔 상태입니다.</p>
+
+    <h3>표에서 읽을 수 있는 것</h3>
+    <ul class="plain">
+      <li><strong>대부분 며칠 안에 판정이 났습니다.</strong> 적응형 온도와 가림 블록 제거는 넣은 날 되돌렸고, 다단계 최적화는 다음 날, 빔 서치는 파일이 처음 생긴 7월 28일부터 사흘 만에 지웠습니다. 전체 407개 커밋 중 49개가 "Revert"로 시작합니다.</li>
+      <li><strong>한동안 쓰이다가 빠진 것도 있습니다.</strong> 커밋 기록으로는 타부가 7월 2일에 들어와 8월 9일에 빠졌고, 재가열은 7월 25일에 들어와 8월 6일에 빠졌습니다. 8월 4일의 보고서 초안은 둘을 해법의 일부로 설명합니다. 롤링 호라이즌이 들어온 뒤에 필요가 없어진 것으로 보이지만, 그렇게 적은 자료는 없습니다.</li>
+      <li><strong>탐색을 똑똑하게 만드는 장치보다 다양성이 이겼습니다.</strong> 빔 서치를 버린 이유가 그렇고, 최종 해법의 큰 재구성이 거리 가중치와 재삽입 순서의 가중치를 매번 무작위로 뽑는 것(7장)도 같은 방향입니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>저자가 밝힌 개선 방향</h2>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>대상</th><th>방향</th><th>관련 장</th></tr></thead>
+      <tbody>
+        <tr><td>추상 사전최적화</td><td>근사 점유 넓이와 혼잡 지표를 개선해 추상 일정과 실제 배치 사이의 간격을 줄인다</td><td>3장</td></tr>
+        <tr><td>롤링 호라이즌</td><td>호라이즌 크기와 시간 배분을 문제마다 다르게 정한다. 예선 발표는 기준으로 문제의 크기와 혼잡도를 듭니다</td><td>6장</td></tr>
+        <tr><td>큰 재구성</td><td>가림 관계(누가 누구의 크레인 작업을 막는가)를 제거할 블록을 고르는 데 더 직접 쓴다</td><td>7장</td></tr>
+        <tr><td>SA</td><td>목적 함수 값의 차이와 수락 비율에 기반한 적응형 온도 조절을 다시 검토한다</td><td>7장</td></tr>
+        <tr><td>병렬 방식</td><td>워커를 온도대나 이웃 구성별로 특화하고 주기적으로 상태를 교환한다. 고온 워커가 구조를 바꾸고 저온 워커가 다듬는다</td><td>7장</td></tr>
+        <tr><td>두 단계의 연결</td><td>실제 배치의 결과를 사전최적화에 되먹인다 (아래)</td><td>3장, 6장</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="src">위 다섯 줄은 보고서 "Further Improvement Plan"과 예선 발표 12쪽, 마지막 줄은 최종 발표 11쪽("Feedback-Guided Preoptimization")입니다.</p>
+    <p>마지막 줄이 최종 발표에서 새로 나온 내용입니다. 지금 구조는 한 방향입니다. 사전최적화가 낸 투입 순서를 고정하고, 2단계는 그 순서를 따라가기만 합니다. 추상 모델이 실제 채우기와 크레인 제약을 정확히 반영하지 못하면 순서가 최선이 아닐 수 있습니다. 1부에서 납기 순 투입이 이긴 8문제가 그런 경우로 보입니다. 저자가 제안하는 방향은 2단계의 실제 배치 결과를 1단계로 돌려보내, 추상 모델이 실제 문제에서 무엇이 가능한지를 더 잘 반영하게 하는 것입니다.</p>
+    <p>표의 셋째, 넷째 줄은 실패한 시도와 겹칩니다. 가림 블록 제거와 적응형 온도는 버린 것이면서 동시에 다시 해 볼 것입니다. 아이디어가 틀렸다기보다 대회 기간 안에 안정적으로 조정하지 못했다는 뜻으로 읽힙니다.</p>
+  </section>
+
+  <section>
+    <h2>실용 관점: 정확도 말고 무엇이 중요한가</h2>
+    <p>최종 발표 10쪽은 실제 현장에서는 해의 정확도만큼 중요한 것이 여럿 있다며 다섯 가지를 듭니다. 정확도와 효율은 본선 결과로 보였다고 하고, 나머지 셋을 설계와 연결해 설명합니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>관점</th><th>저자의 주장 (발표 10쪽)</th><th>저장소에서 확인되는 근거</th></tr></thead>
+      <tbody>
+        <tr><td>정확도, 효율</td><td>본선 결과로 증명했다고 생각한다</td><td>3부의 수치</td></tr>
+        <tr><td>확장성</td><td>롤링 호라이즌이 단계마다 최적화하는 블록 수를 제한한다. 문제가 커지면 호라이즌 수를 늘리면 된다</td><td><span class="mono">tools/generate_scalability_case.py</span>가 블록 600개·베이 10개짜리 문제를 만든다 (아래)</td></tr>
+        <tr><td>견고성</td><td>이미 놓은 블록도 계속 움직일 수 있고, 큰 이웃이 서로 얽힌 결정 여러 개를 함께 고친다. 투입 순서나 초반 결정이 불완전해도 회복할 수 있다</td><td>호라이즌마다 들어온 블록 전체가 SA 대상(6장), 큰 재구성(7장)</td></tr>
+        <tr><td>유연성</td><td>전체 방향 잡기, 충돌 판정, 해 개선이 서로 다른 부품이다. 새 제약이나 목적이 생기면 해당 부품에만 넣으면 된다</td><td>2장의 소스 파일 지도. 사전최적화, 충돌 격자, 삽입, 이웃, SA가 파일 단위로 나뉨</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>확장성 스크립트는 38줄입니다. 학습 문제 하나를 통째로 두 번 이어 붙입니다.</p>
+<pre><span class="c"># tools/generate_scalability_case.py:10</span>
+source_path = root / "in/train-final/prob_23.json"       <span class="c"># 베이 5개, 블록 300개 (1부 표의 23번)</span>
+output_path = root / "in/scalability/prob_600_10.json"
+
+bays = copy.deepcopy(source["bays"] * 2)                 <span class="c"># 베이 목록을 두 번 → 10개</span>
+for _ in range(2):                                       <span class="c"># 블록 목록을 두 번 → 600개</span>
+    for source_block in source["blocks"]:
+        block = copy.deepcopy(source_block)
+        block["bay_preferences"] *= 2                    <span class="c"># 선호 점수 목록도 10칸으로</span>
+        blocks.append(block)</pre>
+    <p>기본 호라이즌 크기가 20이므로 이 문제는 ⌈600 / 20⌉ = 30개 호라이즌으로 풀립니다. 이 스크립트는 최종 발표를 준비하던 9월 15일 커밋에서 추가됐습니다.</p>
+    <p class="src">이 600블록 문제를 실제로 돌린 결과(값, 소요 시간)는 저장소와 발표 자료에 없습니다. 확장성은 설계상의 근거와 문제 생성기까지만 확인됩니다. 선호 점수 목록을 그대로 두 번 이으면 합이 200이 되는데, 이 점이 결과에 주는 영향도 확인하지 못했습니다.</p>
+  </section>
+
+  <!-- ================= 5부 ================= -->
+  <div class="part">5부 · 개발 방식</div>
+
+  <section>
+    <h2>파라미터는 전부 파일 하나에</h2>
+    <p>알고리즘의 동작을 좌우하는 숫자는 코드에 박혀 있지 않고 <span class="mono">params/default.yaml</span> 한 파일에 모여 있습니다. 100줄이고, 설정 항목은 68개입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>구역</th><th style="text-align:right">항목 수</th><th>내용</th><th>예</th></tr></thead>
+      <tbody>
+        <tr><td><code>runtime</code></td><td style="text-align:right">6</td><td>워커 수, 난수 시드, 시간 여유, 후보 해 출력 간격과 횟수</td><td><span class="mono">worker_count: 4</span>, <span class="mono">solve_time_buffer_seconds: 2.0</span></td></tr>
+        <tr><td><code>phases</code></td><td style="text-align:right">6</td><td>1단계와 2단계의 시간 배분, 호라이즌 크기</td><td><span class="mono">base_horizon_size: 20</span>, <span class="mono">time_allocation_power: 2.0</span></td></tr>
+        <tr><td><code>insert</code></td><td style="text-align:right">5</td><td>탐욕 삽입의 행 탐색 범위, 앵커, 동점 후보 선택</td><td><span class="mono">y_buffer: 10</span>, <span class="mono">candidate_top_k: 4</span></td></tr>
+        <tr><td><code>annealing</code></td><td style="text-align:right">8</td><td>1단계와 2단계 SA의 온도 배율, 워커 간 교환 주기와 문턱</td><td><span class="mono">temperature_…_scale: [0.2, 0.02]</span></td></tr>
+        <tr><td><code>preoptimize</code></td><td style="text-align:right">15</td><td>근사 점유의 α·β, 혼잡 가중치, 추상 이웃의 확률과 크기</td><td><span class="mono">alpha: 0.5</span>, <span class="mono">beta: 0.1</span></td></tr>
+        <tr><td><code>neighbor</code></td><td style="text-align:right">28</td><td>이웃 네 종류의 선택 비율, 큰 재구성의 제거 개수·거리 가중치·재삽입 순서 가중치, Shift·Rotate의 범위</td><td><span class="mono">remove_count.range: [7, 13]</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="src">항목 수는 값이 달린 줄을 직접 세었습니다(목록 값은 한 항목으로 셈). 정의는 <span class="mono">src/params.rs</span>(249줄)이고, 모든 구조체에 <code>#[serde(deny_unknown_fields)]</code>가 붙어 있어 YAML에 모르는 이름이 있으면 읽다가 실패합니다. 오타로 기본값이 조용히 쓰이는 일을 막는 장치입니다.</p>
+    <p>큰 재구성 쪽 항목 28개 중 12개는 값 하나가 아니라 범위입니다. 예를 들어 <span class="mono">remove_x_distance_weight_range: [0.1, 4.0]</span>은 시도할 때마다 이 범위에서 가중치를 새로 뽑으라는 뜻입니다. 가장 좋은 값 하나를 찾는 대신 범위를 조정합니다.</p>
+  </section>
+
+  <section>
+    <h2>측정하고 고르는 고리</h2>
+    <p>파라미터가 파일로 빠져 있으면 "값을 바꾼 파일을 만들고, 여러 문제에 돌리고, 점수를 비교한다"를 자동으로 돌릴 수 있습니다. 저장소의 도구가 이 고리를 이룹니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>도구 (tools/)</th><th>하는 일</th></tr></thead>
+      <tbody>
+        <tr><td><code>composer.py</code></td><td>Rust 솔버를 릴리스 빌드하고 <span class="mono">solutions/{버전}/</span>에 제출물 세 파일(<span class="mono">solver</span>, <span class="mono">myalgorithm.py</span>, <span class="mono">params.yaml</span>)을 모은다</td></tr>
+        <tr><td><code>runner.py</code></td><td>제출물을 한 문제 또는 문제 묶음(suite)에 대해 실행하고, 결과를 <span class="mono">log/score.csv</span>와 <span class="mono">log/{버전}/{제한 시간}/{문제}</span>에 남긴다. 솔버는 최대 4스레드로 제한</td></tr>
+        <tr><td><code>cloud_runner.py</code>, <code>cloud/</code></td><td>리눅스용 제출물을 만들어 Google Cloud Run Jobs에서 문제 묶음을 병렬로 돌리고, 점수와 로그를 로컬 <span class="mono">log/</span>에 합친다</td></tr>
+        <tr><td><code>stats.py</code></td><td><span class="mono">log/score.csv</span>를 (버전, 제한 시간)별로 집계한다. 등수 점수, 상대 점수, w₁ 단위로 환산한 격차를 낸다</td></tr>
+        <tr><td><code>stats_server.py</code></td><td>브라우저에서 조건을 고르면 <code>stats.py</code>를 다시 돌려 표로 보여 주는 작은 로컬 서버</td></tr>
+        <tr><td><code>tune_params.py</code></td><td>YAML로 정의한 파라미터 후보를 단계별로 평가해 가장 좋은 조합을 고른다</td></tr>
+        <tr><td><code>visualizer.py</code></td><td>실행 결과를 대화형 HTML 뷰어로 만든다</td></tr>
+        <tr><td><code>plot_horizon_score.py</code></td><td>솔버의 <span class="mono">stderr.log</span>에서 호라이즌별 워커의 점수와 온도를 뽑아 그래프로 그린다</td></tr>
+        <tr><td><code>anneal_visualizer.py</code>, <code>anneal_visualizer_3d.py</code></td><td><span class="mono">anneal-visualizer</span> 기능을 켜고 빌드한 솔버가 남긴 워커별 스냅숏으로 SA 과정을 2D, 3D 뷰어로 재생한다. 어떤 이웃이 어떤 블록을 바꿨는지 시간순으로 본다</td></tr>
+        <tr><td><code>generate_scalability_case.py</code></td><td>블록 600개·베이 10개 문제 생성 (4부)</td></tr>
+        <tr><td><code>myalgorithm.py</code></td><td>제출물의 진입점. 솔버가 내놓은 후보 해를 검증해 돌려준다 (6장)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="src"><span class="mono">tools/README.md</span>와 각 스크립트의 앞부분에서 확인했습니다. 시각화 도구가 넷이나 되는 것은 저자의 말과도 맞습니다. 위 기사에서 저자는 나온 해를 일일이 시각화해 개선점을 찾고 다시 반영하는 과정을 수없이 반복했다고 말합니다.</p>
+
+    <h3>상대 점수</h3>
+    <p>버전끼리 비교할 때 쓰는 기본 지표는 상대 점수입니다. 문제마다 "비교 대상 중 가장 좋은 값 ÷ 이 버전의 값"을 구해 더합니다(<span class="mono">tools/stats.py:297</span>). 그 문제에서 가장 좋았으면 1, 값이 두 배면 0.5입니다. 1부에서 봤듯이 목적 함수 값은 문제마다 수만 배씩 차이가 나므로, 값을 그대로 더하면 큰 문제 몇 개만 보게 됩니다. 비율로 바꾸면 모든 문제가 같은 무게를 갖습니다. 대회의 등수 점수가 문제마다 같은 무게를 주는 것과 방향이 같습니다.</p>
+
+    <h3>단계별 파라미터 탐색</h3>
+    <p><code>tune_params.py</code>는 설정 파일의 <code>steps</code>를 위에서부터 차례로 실행합니다. 한 단계 안에서는 후보마다 파라미터 파일을 만들어 문제 묶음을 돌리고, 상대 점수가 가장 높은 후보를 고릅니다. 그 후보의 값이 고정된 채로 다음 단계로 넘어갑니다(<span class="mono">tools/tune_params.py:275</span>). 아래는 스크립트가 읽는 키에 맞춰 제가 만든 예시입니다. 저장소에 예시 설정 파일은 없습니다.</p>
+<pre><span class="c"># 형식을 보여 주는 예시 (값은 임의)</span>
+name: recon-ratio
+version: "122"
+base_params: params/default.yaml
+suite: suites/half.json
+timelimit: 60
+steps:
+  - name: 큰 재구성의 비율
+    mode: product                                   <span class="c"># 나열한 값들의 모든 조합</span>
+    parameters:
+      neighbor.probabilities.large_reconstruct: [0.1, 0.2, 0.4]
+  - name: 제거 개수                                 <span class="c"># 앞 단계에서 이긴 값을 고정한 채로</span>
+    mode: combinations                              <span class="c"># 직접 적은 조합만</span>
+    parameters:
+      - { neighbor.reconstruct.remove_count.range: [5, 10] }
+      - { neighbor.reconstruct.remove_count.range: [7, 13] }</pre>
+    <p><span class="mono">--cloud</span>를 붙이면 후보 평가가 Cloud Run으로 갑니다. <span class="mono">tools/cloud/config.yaml</span>의 현재 설정은 작업 20개, 작업당 CPU 4개와 메모리 8GB, 제한 30분입니다. 문제 묶음을 작업들에 돌아가며 나눠 주고, 작업마다 솔버가 워커 4개를 씁니다. 40문제를 300초씩 한 대에서 돌리면 200분인데, 작업 20개로 나누면 작업당 두 문제, 10분 남짓입니다(이 계산은 설정값으로 제가 한 것입니다).</p>
+    <p class="src">이 도구들이 대회 중에 실제로 어떤 탐색에 몇 번 쓰였는지는 결과 폴더(<span class="mono">tuning/</span>, <span class="mono">log/</span>)가 저장소에 없어 확인하지 못했습니다. git 기록에는 "tune-params"(7월 19일), "082: add cloud runner"(7월 31일), "100: add --cloud to tune_params.py"(8월 7일) 같은 커밋이 있습니다.</p>
+  </section>
+
+  <section>
+    <h2>제출물</h2>
+    <p>제출물은 파일 세 개입니다. 리눅스용 실행 파일 <span class="mono">solver</span>, 파이썬 진입점 <span class="mono">myalgorithm.py</span>, 그리고 <span class="mono">params.yaml</span>입니다. 실행 시 <span class="mono">myalgorithm.py</span>가 같은 폴더의 <span class="mono">solver</span>를 띄우고 문제를 표준 입력으로 넘깁니다.</p>
+    <ul class="plain">
+      <li><strong>채점 환경에 맞춘 빌드:</strong> 저자의 기기는 Apple Silicon 맥이고 채점 환경은 리눅스입니다. <span class="mono">Dockerfile</span>이 Ubuntu 24.04(x86_64)에 Rust, Python 3.12, Shapely 2.1.2를 깔고, 그 안에서 <code>composer.py --platform linux</code>를 실행해 제출물을 만듭니다.</li>
+      <li><strong>릴리스 설정:</strong> <span class="mono">Cargo.toml</span>의 릴리스 프로필은 <span class="mono">lto = "fat"</span>, <span class="mono">codegen-units = 1</span>, <span class="mono">panic = "abort"</span>입니다. 의존 패키지는 일곱 개(clap, geo, rayon, serde, serde_json, serde_yaml, rand_pcg)입니다.</li>
+      <li><strong>개발용 빌드와 제출용 빌드의 차이:</strong> <span class="mono">local</span> 기능을 켜고 빌드하면 충돌 격자 계산이 예외 경로로 빠질 때 프로그램이 멈춥니다(<span class="mono">src/solver/collision.rs:408</span>). 제출용 빌드는 같은 상황에서 기록만 남기고 계속 갑니다. 개발 중에는 문제를 바로 드러내고, 본선에서는 어떻게든 해를 내게 한 것입니다.</li>
+      <li><strong>시간 여유:</strong> 파이썬 쪽이 검증에 2초, 반환에 1초를 떼고(<span class="mono">tools/myalgorithm.py:17</span>) 솔버에 나머지를 줍니다. 솔버는 그중 2초를 다시 남기고 끝냅니다(<span class="mono">solve_time_buffer_seconds</span>). 자세한 흐름은 6장에서 다룹니다.</li>
+    </ul>
+    <p class="src"><span class="mono">build.txt</span>, <span class="mono">Dockerfile</span>, <span class="mono">tools/composer.py</span>, <span class="mono">tools/README.md</span>의 "DockerでLinux向け提出物を作る" 절입니다. 예선 발표 13쪽에서 저자는 후보 해를 여러 번 내보내고 파이썬에서 검증하는 구조를 "숨겨진 문제에서의 예상 못 한 실패에 대비한 안전장치"라고 설명합니다.</p>
+  </section>
+
+  <section>
+    <h2>AI 코딩 에이전트의 사용</h2>
+    <p>보고서의 "AI Use Declaration"은 세 문장입니다. 저자가 구상한 알고리즘을 구현하는 데 주로 Codex(GPT 5.6 Sol High)를 보조로 썼고, 보고서는 기존 구현을 정리하고 초안을 만드는 데 썼으며, 알고리즘의 아이디어와 설계 결정은 저자가 했고 생성된 코드와 글을 저자가 검토·검증·수정했다는 내용입니다.</p>
+    <p>저장소 루트의 <span class="mono">AGENTS.md</span>가 에이전트에게 준 작업 규칙입니다. 원문은 일본어이고 옮기면 이렇습니다.</p>
+    <ul class="plain">
+      <li>기본적으로 서브에이전트에게 맡기지 말 것</li>
+      <li>과한 주석은 필요 없음</li>
+      <li>YAGNI를 중시하고, 불필요한 보조 함수를 늘리지 말 것</li>
+      <li>폴백 구현, 하위 호환, 파라미터에 대한 에러 처리는 필요 없음</li>
+      <li>알고리즘의 동작을 좌우하는 파라미터는 <span class="mono">src/params.rs</span>와 <span class="mono">params/default.yaml</span>에 추가할 것</li>
+      <li>지시한 경우가 아니면 테스트를 추가하지 말 것</li>
+      <li><code>cargo fmt &amp;&amp; cargo check --all-features</code> 외의 동작 검증은 필요 없음. <span class="mono">train/</span>의 입력으로 돌려 보는 것도 필요 없음</li>
+      <li>난수열이 바뀌어도 괜찮음</li>
+    </ul>
+    <p>규칙의 방향은 한결같습니다. 코드를 작게 유지하고, 실험용 숫자는 반드시 파라미터 파일로 빼라는 것입니다. 성능 평가는 에이전트에게 시키지 않습니다. 평가는 앞 절의 도구로 문제 묶음 전체에 대해 따로 하기 때문으로 보입니다. 결과적으로 솔버는 <span class="mono">src/</span> 아래 Rust 파일을 모두 합쳐 6,042줄이고(직접 셈), 4부에서 본 것처럼 통하지 않은 시도는 코드에서 지워졌습니다.</p>
+    <p class="src">git 기록은 2026년 6월 17일부터 10월 9일까지 407개 커밋입니다. 그중 184개가 "005"부터 "123"까지의 번호로 시작하는데, <code>runner.py</code>와 <code>stats.py</code>가 버전 이름으로 결과를 구분하는 것과 맞물립니다. 에이전트가 코드의 어느 부분을 얼마나 썼는지는 커밋에서 구분할 수 없습니다. "평가는 따로 하기 때문"이라는 설명은 규칙과 도구를 보고 제가 한 해석입니다.</p>
+  </section>
+
+  <!-- ================= 6부 ================= -->
+  <div class="part">6부 · 정리</div>
+
+  <section>
+    <h2>다른 "채우기 + 일정" 문제로 가져갈 수 있는 것</h2>
+    <p>이 해법에서 조선소 블록에만 해당하는 부분을 걷어 내면 다섯 가지가 남습니다. 각 항목이 이 자료의 어느 장에 있는지도 함께 적습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>가져갈 것</th><th>이 해법에서의 모습</th><th>통하는 조건</th><th>장</th></tr></thead>
+      <tbody>
+        <tr><td>단순화한 문제로 순서를 먼저 얻는다</td><td>모양을 숫자 하나(근사 점유 넓이)로 줄이고 베이와 입고 시각만 풀어, 그 결과로 투입 순서를 정한다. 결과는 순서에만 쓰고 강제하지 않는다</td><td>어려운 제약(기하)을 빼도 자원 경쟁의 큰 그림이 남을 때</td><td>2, 3</td></tr>
+        <tr><td>끝자리에서 한 번씩 최적화한다</td><td>블록을 20개씩 추가하며 그때마다 들어온 블록 전체를 최적화한다. 앞의 결정은 얼리지 않는다</td><td>목적 함수의 주된 항이 개체별 합일 때. 전체를 봐야 하는 항(Z₂)은 마지막에만 켠다</td><td>2, 6</td></tr>
+        <tr><td>공간과 시간을 한 번의 훑기로 함께 찾는다</td><td>충돌 격자로 겹치는 x 구간을 미리 알고, x를 훑으며 금지 입고 시각 구간을 갱신해 좌표와 가장 빠른 입고 시각을 한꺼번에 정한다</td><td>두 개체 사이의 제약을 상대 위치만으로 미리 계산할 수 있을 때</td><td>4, 5</td></tr>
+        <tr><td>여러 개를 빼고 다시 넣는 큰 이웃</td><td>가까운 블록 여러 개를 함께 빼고, 매번 다른 기준으로 순서를 정해 탐욕 삽입으로 다시 넣는다</td><td>하나씩 옮겨서는 중간 상태가 불가능해 구조가 바뀌지 않을 때. 빠르고 좋은 삽입 절차가 있어야 한다</td><td>7</td></tr>
+        <tr><td>유효성 재검증과 시간 안전장치</td><td>마지막 호라이즌에서 후보 해를 여러 번 내보내고, 유효성 검사를 통과한 것 중 가장 좋은 것을 돌려준다. 호라이즌마다 남은 시간을 다시 나눈다</td><td>무효한 해의 벌점이 크고 제한 시간을 모를 때</td><td>1, 6</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>다섯 가지는 서로 기대어 있습니다. 순서가 있어야 끝자리 최적화를 할 수 있고, 삽입이 빨라야 큰 이웃을 많이 시도할 수 있고, 검증이 있어야 탐색을 과감하게 할 수 있습니다. 저자는 최종 발표에서 이를 지형에 비유해 정리합니다. 강한 기하·시간 제약 때문에 한 골짜기에서 다른 골짜기로 넘어가기 어렵고, 좋은 일정은 여러 조건의 균형이라 찾기 어렵습니다. 롤링 호라이즌이 제약을 누그러뜨리고, 사전최적화가 유망한 영역을 가리키고, 투입 순서가 탐색을 그 영역에 묶어 둡니다.</p>
+    <p>개발 방식에서 가져갈 것도 하나 보탭니다. 숫자를 파일로 빼고, 문제 묶음 전체에 대한 상대 점수로 판정하고, 통하지 않으면 그날 되돌리는 고리입니다. 4부의 표는 이 고리가 있어서 만들어진 것입니다.</p>
+    <p class="src">지형 비유는 최종 발표 9쪽, 예선 발표 17쪽입니다. 저자도 그림에 "추상적인 그림"이라고 적어 두었습니다. 표의 "통하는 조건" 열은 보고서의 설계 근거 절을 바탕으로 제가 정리한 것입니다.</p>
+  </section>
+
+  <section>
+    <h2>이 장에서 확인하지 못한 것</h2>
+    <ul class="plain">
+      <li>학습 40문제와 본선 8문제의 입력 파일. 문제별 가중치, 본선 문제의 크기와 제한 시간을 모릅니다. <span class="mono">train/</span>의 <span class="mono">stage2_prob_1..8</span>이 본선 8문제와 같은 것인지도 확인하지 못했습니다.</li>
+      <li>모든 실험 수치의 재현. 솔버를 실행할 수 없어 보고서와 스크립트의 값을 그대로 옮겼습니다.</li>
+      <li>발표 자료에서 롤링 호라이즌 제거의 격차가 +37.7%로 커진 이유, 그리고 제거 실험용 버전들의 정확한 구성.</li>
+      <li>실패한 시도 중 다섯 가지의 개별적인 폐기 이유. 보고서에 한 문장으로 묶여 있습니다.</li>
+      <li>600블록 문제의 실행 결과, 파라미터 탐색과 Cloud Run 사용의 실제 기록.</li>
+      <li>최종 점수 94점의 구성과 공식 순위표.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>용어집</h2>
+    <p>이 자료 전체에서 쓴 용어를 처음 나온 장과 함께 모았습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>용어</th><th>뜻</th><th>장</th></tr></thead>
+      <tbody>
+        <tr><td>베이</td><td>블록을 놓는 직사각형 작업장. 폭과 높이(평면의 세로 길이)만 있다</td><td>1</td></tr>
+        <tr><td>블록</td><td>배치하고 일정을 정할 대상. 일정 조건, 베이 선호, 모양을 가진다</td><td>1</td></tr>
+        <tr><td>층</td><td>블록을 일정한 높이마다 수평으로 자른 단면을 위에서 본 다각형. 층 번호가 높이이고, 한 블록의 층들은 함께 움직인다</td><td>1</td></tr>
+        <tr><td>방향</td><td>입력에 주어진 블록의 회전 모양 중 하나. 대부분 45° 간격 8개</td><td>1</td></tr>
+        <tr><td>기준점</td><td>층 0의 첫 꼭짓점 (0, 0). 이 점을 베이의 정수 좌표 (x, y)에 놓는다</td><td>1</td></tr>
+        <tr><td>R, P, D</td><td>release time(이때부터 넣을 수 있음), processing time(최소 체류 기간), due date(납기)</td><td>1</td></tr>
+        <tr><td>입고 시각 e, 출고 시각 q</td><td>크레인이 블록을 내려놓는 날과 들어 올리는 날. 블록은 e일부터 q − 1일까지 베이를 차지한다. 이 해법은 항상 q = e + P</td><td>1</td></tr>
+        <tr><td>규칙 A</td><td>같은 베이에 같은 기간에 있는 두 블록은 같은 번호의 층끼리 겹치면 안 된다</td><td>1</td></tr>
+        <tr><td>규칙 B</td><td>블록은 수직으로만 오르내린다. 움직이는 블록의 층 k가 지나는 길(층 k 이상의 높이)에 다른 블록이 있으면 안 된다</td><td>1</td></tr>
+        <tr><td>X가 M을 가린다</td><td>위에서 봤을 때 X의 어떤 층이 M의 더 낮은 층과 겹친다. X가 있는 동안 M은 들어올 수도 나갈 수도 없다</td><td>1</td></tr>
+        <tr><td>Z₁, Z₂, Z₃</td><td>납기 지연 일수의 합, 베이 간 작업량 불균형, 베이 선호 벌점의 합. 목적 함수는 F = w₁Z₁ + w₂Z₂ + w₃Z₃</td><td>1</td></tr>
+        <tr><td>지연(tardiness)</td><td>max(0, 출고 시각 − 납기). 일찍 끝내도 음수가 되지 않는다</td><td>1</td></tr>
+        <tr><td>채우기 문제</td><td>정해진 용기 안에 물건들을 겹치지 않게 넣는 문제의 부류</td><td>1</td></tr>
+        <tr><td>볼록, 비볼록</td><td>안쪽으로 파인 곳이 없는 다각형이 볼록, 있는 것이 비볼록. 층의 68%가 비볼록</td><td>1, 4</td></tr>
+        <tr><td>등수 점수</td><td>문제마다 R − nb. R은 평가된 팀 수, nb는 더 좋은 값을 낸 팀 수. 무효·시간 초과는 −1</td><td>1, 8</td></tr>
+        <tr><td>3차원 채우기</td><td>시간을 세 번째 축으로 보고, 블록을 (x, y, 시간) 공간의 길이 P짜리 기둥으로 보는 관점</td><td>2</td></tr>
+        <tr><td>잠김</td><td>빽빽한 일정에서 앞쪽 블록이 뒤의 블록들과 얽혀 거의 움직이지 못하는 현상. 보고서의 lock-in, rigidity</td><td>2</td></tr>
+        <tr><td>휴리스틱, 지역 탐색, 이웃</td><td>최적 보장 없이 좋은 해를 빨리 찾는 방법, 해를 조금씩 바꿔 가며 좋아지는 쪽으로 가는 탐색, 그 "조금 바꾸는 방법"</td><td>2</td></tr>
+        <tr><td>큰 이웃 탐색</td><td>해의 일부를 부수고 다시 짓는 이웃을 쓰는 탐색(LNS, ruin-and-recreate). 이 해법의 큰 재구성</td><td>2, 7</td></tr>
+        <tr><td>완화 문제</td><td>어려운 제약을 느슨하고 계산하기 쉬운 제약으로 바꾼 문제. 추상 문제는 엄밀한 완화가 아니라 근사 모형</td><td>2</td></tr>
+        <tr><td>탐욕</td><td>그 순간 가장 좋아 보이는 선택을 하고 되돌리지 않는 방식</td><td>2, 3, 5</td></tr>
+        <tr><td>투입 순서</td><td>2단계에서 블록을 일정에 추가하는 순서. 추상 입고 시각이 빠른 순, 같으면 부피가 큰 순</td><td>2</td></tr>
+        <tr><td>호라이즌</td><td>투입 순서를 고르게 자른 한 구간(기본 20개)이자, 그 구간을 추가하고 최적화하는 한 단계</td><td>2, 6</td></tr>
+        <tr><td>롤링 호라이즌</td><td>호라이즌을 하나씩 추가하면서 그때까지 들어온 블록 전체를 최적화하는 방식. 앞의 블록을 얼리지 않는다</td><td>2, 6</td></tr>
+        <tr><td>추상 사전최적화</td><td>블록의 모양을 넓이 하나로 줄이고, 날마다 베이의 넓이 합이 용량 이하라는 제약만 두고 베이와 입고 시각을 푸는 1단계</td><td>2, 3</td></tr>
+        <tr><td>추상 베이, 추상 입고 시각</td><td>추상 사전최적화가 블록마다 낸 베이와 입고 시각. 2단계는 추상 입고 시각의 순서(투입 순서)와, 추상 일정대로일 때의 지연(삽입에서 행 탐색을 일찍 끝내는 기준)만 쓴다. 추상 베이는 읽지 않는다</td><td>2, 3</td></tr>
+        <tr><td>근사 점유 넓이</td><td>추상 문제에서 블록이 베이를 차지하는 양. 층 합집합의 넓이에 바운딩 박스와의 차이(α배)와 둘레(β배)를 더한 값</td><td>3</td></tr>
+        <tr><td>바운딩 박스</td><td>블록의 모든 층을 감싸는, 축에 나란한 가장 작은 직사각형</td><td>3</td></tr>
+        <tr><td>한계 시각</td><td>D − P. 납기를 맞추려면 늦어도 들어가야 하는 날</td><td>3, 7</td></tr>
+        <tr><td>차분 계산</td><td>목적 함수를 처음부터 다시 계산하지 않고 바뀐 부분의 변화량만 반영하는 방식. 1단계는 쓰고 2단계는 쓰지 않는다</td><td>3, 7</td></tr>
+        <tr><td>혼잡 벌점</td><td>추상 일정의 목적 함수에 더하는 항. 같은 시간에 함께 있는 블록 쌍의 점유 비율 곱을 더한다</td><td>3</td></tr>
+        <tr><td>충돌 격자</td><td>두 블록(방향 쌍)에 대해, 상대 위치마다 겹치는지를 미리 계산한 표. 정수 Δy 행마다 금지되는 Δx 구간으로 저장하고, 처음 쓸 때 만들어 캐시한다</td><td>4</td></tr>
+        <tr><td>민코프스키 차, no-fit polygon</td><td>A의 점에서 B의 점을 뺀 벡터의 집합. B의 기준점이 이 안에 오면 A와 겹친다. 채우기 문헌의 NFP와 같은 것</td><td>4</td></tr>
+        <tr><td>귀 자르기</td><td>다각형에서 "귀"(안에 온전히 들어 있는 꼭짓점 삼각형)를 하나씩 잘라 삼각형들로 나누는 방법</td><td>4</td></tr>
+        <tr><td>한 행 훑기, 이벤트</td><td>y를 고정하고 x를 훑으며, 금지 구간이 시작하거나 끝나는 x(이벤트)에서만 상태를 갱신해 구간마다 가장 이른 입고 시각을 구하는 절차</td><td>5</td></tr>
+        <tr><td>금지 입고 시각 구간</td><td>어떤 좌표에 새 블록을 놓을 때, 이미 놓인 블록 하나 때문에 불가능해지는 입고 시각의 구간. 블록 하나당 많아야 두 구간</td><td>5</td></tr>
+        <tr><td>탐욕 삽입</td><td>블록 하나를 지금 일정에 넣을 때 베이, 방향, 행(y)을 훑어 목적 함수 증가가 가장 작은 자리와 시각을 고르는 절차</td><td>5</td></tr>
+        <tr><td>앵커</td><td>동점인 자리 중 어느 구석에 가까운 쪽을 고를지 정하는 기준 구석. 워커 0~3이 왼쪽 아래, 오른쪽 아래, 왼쪽 위, 오른쪽 위를 기본 앵커로 쓴다</td><td>5</td></tr>
+        <tr><td>시드</td><td>두 가지 뜻으로 쓰인다. 난수열의 출발값(6장), 그리고 큰 재구성에서 제거의 중심이 되는 블록(7장)</td><td>6, 7</td></tr>
+        <tr><td>워커</td><td>독립적으로 탐색하는 스레드 하나. 기본 4개. 각자 자기 해를 호라이즌을 넘어 들고 가고, 공유 최선을 갱신하고 가져온다</td><td>2, 6, 7</td></tr>
+        <tr><td>SA</td><td>시뮬레이티드 어닐링. 나빠지는 변화도 온도에 따른 확률 exp(−Δ/T)로 받아들이는 지역 탐색. 온도는 시간이 갈수록 낮춘다</td><td>2, 3, 7</td></tr>
+        <tr><td>수락 임계값</td><td>지금 점수 − T × ln(u). 후보의 점수가 이 값 이하이면 받아들인다. 후보를 만들기 전에 뽑아 두고, 큰 재구성이 허용 지연을 계산하는 데 쓴다</td><td>3, 7</td></tr>
+        <tr><td>개인 최선, 공유 최선</td><td>워커 하나가 받아들인 해 중 가장 좋은 것, 그리고 모든 워커를 통틀어 가장 좋은 것. 다음 호라이즌의 출발점은 개인 최선이다</td><td>6, 7</td></tr>
+        <tr><td>작은 이웃</td><td>블록 하나를 빼고 그 블록의 자리만 다시 찾는 변화. Shift(베이와 방향 유지), Rotate(베이 유지, 방향 변경), Move(베이부터 다시 삽입)</td><td>7</td></tr>
+        <tr><td>큰 재구성</td><td>Large Reconstruction. 시드 블록 여러 개와 그 근처 블록을 함께 빼고, 새 순서로 탐욕 삽입해 다시 넣는 큰 이웃</td><td>7</td></tr>
+        <tr><td>후보 해</td><td>솔버가 마지막 호라이즌에서 내보내는 그 시점의 최선 해(확장 직후, 공유 최선이 갱신되고 간격이 지났을 때, 종료 직전). 파이썬 쪽이 점수 순으로 검증한다</td><td>6</td></tr>
+        <tr><td>제거 실험</td><td>부품 하나를 빼고 같은 조건으로 다시 돌려 기여를 재는 실험</td><td>8</td></tr>
+        <tr><td>상대 점수</td><td>문제마다 (비교 대상 중 최선 값 ÷ 이 버전의 값)을 더한 값. 저자가 버전을 비교할 때 쓴 지표</td><td>8</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="src">3~7장의 용어는 보고서의 정의에 맞춰 한 줄로 줄였습니다. 정확한 정의와 코드 위치, 배경 설명은 해당 장에 있습니다. 이 표는 찾아가기 위한 색인입니다.</p>
+  </section>
+
+  <section>
+    <h2>이해 확인</h2>
+    <details>
+      <summary>40문제 합계에서 전체 해법은 두 제거 실험보다 10% 좋습니다. 그러면 모든 문제에서 10%쯤 좋다고 봐도 되나요?</summary>
+      <p>아니요. 합계는 값이 큰 여섯 문제가 70%를 차지합니다. 문제별로 보면 전체 해법이 진 문제가 9개 있고, 롤링 호라이즌 제거의 피해는 +0.7%부터 +225%까지 퍼져 있습니다. 합계의 10%는 "큰 문제에서 꾸준히 10% 안팎 앞선다"에 가깝습니다.</p>
+    </details>
+    <details>
+      <summary>롤링 호라이즌을 빼면 Z₂는 20% 좋아지는데, 왜 합계는 나빠지나요?</summary>
+      <p>Z₂는 합계의 0.1%입니다. 20% 좋아져도 약 10만이 줄 뿐이고, 같은 실험에서 Z₁과 Z₃는 약 4,800만이 늘었습니다. 항목별 변화율은 그 항목이 합계에서 차지하는 크기와 함께 읽어야 합니다.</p>
+    </details>
+    <details>
+      <summary>본선 P1에서는 12.5% 앞섰고 P2에서는 1.1% 앞섰습니다. 순위에 주는 영향은 얼마나 다른가요?</summary>
+      <p>같습니다. 문제별 점수는 "나보다 좋은 팀이 몇인가"로만 정해지므로 둘 다 39점입니다. 반대로 P7처럼 한 팀에게만 져도 1점을 잃고, 무효한 해를 내면 그 문제에서 −1점이 됩니다. 그래서 이 해법은 어느 한 문제에서의 큰 승리보다 모든 문제에서 유효하고 고른 결과를 내는 데 맞춰져 있습니다.</p>
+    </details>
+    <details>
+      <summary>보고서는 롤링 호라이즌 제거가 +10.7%라고 하고 발표 자료는 +37.7%라고 합니다. 어느 쪽이 맞나요?</summary>
+      <p>둘 다 그 시점의 측정값입니다. 보고서의 표는 2026년 8월 4일의 솔버로, 발표 자료의 그래프는 8월 11일의 최종 버전(122)으로 만든 것입니다. 최종 해법에 대한 수치는 발표 자료 쪽입니다. 격차가 왜 그만큼 커졌는지는 자료에 설명이 없습니다.</p>
+    </details>
+  </section>
+  <div class="pager"><a href="#ch7">← 이전: 7장 SA와 이웃</a><span></span></div>
+  </article>

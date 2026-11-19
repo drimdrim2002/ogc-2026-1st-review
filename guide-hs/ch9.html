@@ -1,0 +1,122 @@
+<article class="chapter" id="ch9">
+  <header>
+    <div class="kicker">부록</div>
+    <h1>용어 풀이</h1>
+  </header>
+
+  <section>
+    <p class="lead">이 책 전체에 나오는 핵심 용어를 주제별로 모았습니다. 읽다가 낯선 말이 나오면 여기서 뜻을 확인하고, 자세한 설명이 필요한 장으로 돌아가 볼 수 있습니다.</p>
+  </section>
+
+  <div class="part">1 · 최적화 기초 (0장)</div>
+
+  <section>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>용어</th><th>뜻</th><th>장</th></tr></thead>
+      <tbody>
+        <tr><td><strong>결정 변수</strong></td><td>최적화 문제에서 우리가 값을 정할 수 있는 대상. 이 문제에서는 각 블록의 베이, 방향, 좌표(x, y), 입고 시각</td><td>0, 1</td></tr>
+        <tr><td><strong>제약</strong></td><td>반드시 지켜야 하는 규칙. 하나라도 어기면 유효한 해로 인정되지 않는다</td><td>0, 1</td></tr>
+        <tr><td><strong>목적 함수</strong></td><td>해가 얼마나 좋은지를 숫자 하나로 매기는 식. 이 문제에서는 F = w₁Z₁ + w₂Z₂ + w₃Z₃이며 작을수록 좋다</td><td>0, 1</td></tr>
+        <tr><td><strong>유효한 해 / 최적해</strong></td><td>제약을 모두 지키는 해가 유효한 해, 그중 목적 함수 값이 가장 좋은 것이 최적해</td><td>0</td></tr>
+        <tr><td><strong>조합 폭발</strong></td><td>문제의 크기가 조금 커질 때 가능한 해의 수가 곱절로 불어나 전부 해 볼 수 없게 되는 현상</td><td>0</td></tr>
+        <tr><td><strong>휴리스틱</strong></td><td>최적해라는 보장은 없지만, 주어진 짧은 시간 안에 좋은 해를 찾아 주는 방법</td><td>0</td></tr>
+        <tr><td><strong>탐욕법 (greedy)</strong></td><td>매 순간 가장 좋아 보이는 선택을 차례로 내리고 되돌리지 않는 방법</td><td>0, 5</td></tr>
+        <tr><td><strong>지역 탐색 / 이웃</strong></td><td>현재 해를 조금 바꾼(이웃) 해를 만들어 보고, 좋아지면 갈아타는 탐색</td><td>0, 7</td></tr>
+        <tr><td><strong>지역 최적해</strong></td><td>어느 이웃으로 한 걸음 가도 더 좋아지지 않는 해. 전체 최적해와는 다를 수 있다</td><td>0</td></tr>
+        <tr><td><strong>가지치기 / 하한</strong></td><td>"아무리 잘해도 이 값보다 좋아질 수 없다"는 하한이 이미 찾은 최선보다 나쁘면 계산을 건너뛰는 기법</td><td>5, 6, 7</td></tr>
+        <tr><td><strong>사전계산</strong></td><td>나중에 여러 번 쓰일 값을 미리 계산해 표로 저장해 두는 일</td><td>0, 4</td></tr>
+        <tr><td><strong>파라미터</strong></td><td>알고리즘의 동작을 조절하는 숫자(예: 호라이즌 크기 20, 선택 확률 0.7). 이 해법은 <span class="mono">params/default.yaml</span>에 모아 둔다</td><td>0, 8</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <div class="part">2 · 문제와 규칙 (1장)</div>
+
+  <section>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>용어</th><th>뜻</th><th>장</th></tr></thead>
+      <tbody>
+        <tr><td><strong>베이</strong></td><td>블록을 놓는 직사각형 작업장. 가로(x)와 세로(y) 크기가 주어진다</td><td>1</td></tr>
+        <tr><td><strong>블록 / 층</strong></td><td>일정을 정할 대상. 블록을 일정 높이마다 수평으로 자른 다각형 단면이 층이며, 한 블록의 층들은 함께 움직인다</td><td>1</td></tr>
+        <tr><td><strong>방향 / 기준점</strong></td><td>입력에 주어진 블록의 회전 모양(보통 45° 간격 8개). 층 0의 첫 꼭짓점이 기준점이며 정수 좌표 (x, y)에 놓는다</td><td>1</td></tr>
+        <tr><td><strong>R, P, D</strong></td><td>release time(입고 가능 시작일), processing time(최소 작업 기간), due date(납기)</td><td>1</td></tr>
+        <tr><td><strong>입고 시각 e, 출고 시각 q</strong></td><td>블록을 내려놓는 날과 들어 올리는 날. 이 해법은 항상 q = e + P로 둔다</td><td>1</td></tr>
+        <tr><td><strong>규칙 A / 규칙 B</strong></td><td>규칙 A: 같은 기간에 같은 층끼리 겹치면 안 된다. 규칙 B: 수직으로 오르내릴 때 더 높은 층에 다른 블록이 있으면 안 된다</td><td>1</td></tr>
+        <tr><td><strong>X가 M을 가린다</strong></td><td>위에서 봤을 때 X의 어떤 층이 M의 더 낮은 층과 겹치는 관계. X가 있는 동안 M은 들어올 수도 나갈 수도 없다</td><td>1, 5</td></tr>
+        <tr><td><strong>Z₁, Z₂, Z₃</strong></td><td>납기 지연 합(Z₁), 베이 간 작업량 불균형(Z₂), 베이 선호 벌점 합(Z₃). 목적 함수 F의 세 항</td><td>1</td></tr>
+        <tr><td><strong>지연 (tardiness)</strong></td><td>max(0, 출고 시각 − 납기). 일찍 끝내도 0이며 음수가 되지 않는다</td><td>1</td></tr>
+        <tr><td><strong>등수 점수</strong></td><td>문제마다 R − nb (R은 평가된 팀 수, nb는 나보다 좋은 팀 수). 무효·시간 초과는 −1점</td><td>1, 8</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <div class="part">3 · 전체 구조, 1단계와 기하 (2~4장)</div>
+
+  <section>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>용어</th><th>뜻</th><th>장</th></tr></thead>
+      <tbody>
+        <tr><td><strong>잠김 (lock-in)</strong></td><td>빽빽한 일정에서 앞쪽 블록이 뒤의 블록들과 얽혀 거의 움직이지 못하게 굳는 현상</td><td>2, 7</td></tr>
+        <tr><td><strong>추상 사전최적화</strong></td><td>모양을 숫자 하나(근사 점유 넓이)로 줄이고, 날마다 베이 넓이 합만 맞춰 베이와 입고 시각을 먼저 푸는 1단계</td><td>2, 3</td></tr>
+        <tr><td><strong>투입 순서</strong></td><td>2단계에서 블록을 일정에 넣는 순서. 추상 입고 시각이 빠른 순, 같으면 부피가 큰 순</td><td>2, 3</td></tr>
+        <tr><td><strong>근사 점유 넓이</strong></td><td>추상 문제에서 블록이 차지하는 넓이. 층 합집합 넓이에 바운딩 박스 차이(α배)와 둘레(β배)를 더한 값</td><td>3</td></tr>
+        <tr><td><strong>바운딩 박스</strong></td><td>블록의 모든 층을 감싸는, 축에 나란한 가장 작은 직사각형</td><td>3, 4</td></tr>
+        <tr><td><strong>한계 시각</strong></td><td>D − P. 납기를 맞추기 위해 늦어도 들어가야 하는 입고 시각</td><td>3, 7</td></tr>
+        <tr><td><strong>혼잡 벌점</strong></td><td>추상 일정의 목적 함수에 더하는 항. 같은 날 함께 있는 블록들이 베이 용량을 얼마나 빽빽하게 쓰는지 반영한다</td><td>3</td></tr>
+        <tr><td><strong>차분 계산</strong></td><td>목적 함수를 처음부터 다시 계산하지 않고 바뀐 부분의 변화량만 반영하는 방식. 1단계에서 속도를 높이는 데 쓴다</td><td>3</td></tr>
+        <tr><td><strong>볼록 / 비볼록</strong></td><td>안쪽으로 파인 곳이 없는 다각형이 볼록, 파인 곳이 있는 것이 비볼록. 학습 데이터 층의 약 68%가 비볼록이다</td><td>1, 4</td></tr>
+        <tr><td><strong>충돌 격자</strong></td><td>두 블록(방향 쌍)에 대해 정수 Δy 행마다 겹치는(금지되는) Δx 구간을 미리 계산해 둔 표</td><td>4, 5</td></tr>
+        <tr><td><strong>민코프스키 차</strong></td><td>다각형 A의 점에서 B의 점을 뺀 벡터들의 집합. B의 기준점이 이 안에 오면 A와 겹친다(no-fit polygon)</td><td>4</td></tr>
+        <tr><td><strong>귀 자르기</strong></td><td>비볼록 다각형에서 안쪽에 다른 꼭짓점이 없는 삼각형("귀")을 하나씩 잘라 삼각형들로 나누는 방법</td><td>4</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <div class="part">4 · 2단계 탐색과 SA (5~7장)</div>
+
+  <section>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>용어</th><th>뜻</th><th>장</th></tr></thead>
+      <tbody>
+        <tr><td><strong>탐욕 삽입</strong></td><td>이미 놓인 블록은 그대로 둔 채, 블록 하나를 ΔF가 가장 작은 (베이, 방향, 좌표, 입고 시각)에 넣는 절차</td><td>5</td></tr>
+        <tr><td><strong>한 행 훑기 / 이벤트</strong></td><td>y를 고정하고 금지 x 구간의 끝점(이벤트)에서만 상태를 갱신해, 구간마다 가장 이른 입고 시각을 구하는 절차</td><td>5</td></tr>
+        <tr><td><strong>금지 입고 시각 구간</strong></td><td>어떤 좌표에 새 블록을 놓을 때 기존 블록 하나 때문에 불가능해지는 입고 시각 범위. 블록당 최대 두 구간</td><td>5</td></tr>
+        <tr><td><strong>앵커</strong></td><td>점수와 입고 시각이 동점일 때 블록을 어느 구석에 붙여 놓을지 정하는 기준 구석. 워커 4개가 서로 다른 구석을 쓴다</td><td>5, 6</td></tr>
+        <tr><td><strong>호라이즌 / 롤링 호라이즌</strong></td><td>투입 순서를 20개 안팎으로 자른 한 구간(호라이즌)을 추가할 때마다, 지금까지 들어온 블록 전체를 다시 최적화하는 방식</td><td>2, 6</td></tr>
+        <tr><td><strong>확장</strong></td><td>새 호라이즌의 블록 20개를 넣을 때, 기존 블록 7~13개를 함께 빼고 섞어 여러 번 시도해 가장 좋은 해를 고르는 절차</td><td>6</td></tr>
+        <tr><td><strong>워커</strong></td><td>독립적으로 탐색하는 스레드 하나(기본 4개). 각자 자기 해를 호라이즌을 넘어 끌고 가며 공유 최선을 주고받는다</td><td>0, 6, 7</td></tr>
+        <tr><td><strong>시드 (seed)</strong></td><td>두 가지 뜻으로 쓰인다. 난수열의 출발값(6장), 그리고 큰 재구성에서 제거의 중심이 되는 블록(7장)</td><td>6, 7</td></tr>
+        <tr><td><strong>담금질 기법 (SA)</strong></td><td>나빠지는 후보도 온도에 따른 확률 exp(−Δ/T)로 받아들여 지역 최적해를 빠져나오는 탐색. 온도는 시간이 갈수록 낮춘다</td><td>3, 7</td></tr>
+        <tr><td><strong>수락 임계값</strong></td><td>현재 점수 − T × ln(u). 후보를 만들기 전에 뽑아 두고, 큰 재구성에서 허용 지연 상한을 계산하는 데 쓴다</td><td>3, 7</td></tr>
+        <tr><td><strong>개인 최선 / 공유 최선</strong></td><td>워커 하나가 수락한 해 중 최고가 개인 최선(다음 호라이즌 출발점), 네 워커 통틀어 최고가 공유 최선</td><td>6, 7</td></tr>
+        <tr><td><strong>작은 이웃</strong></td><td>블록 하나를 옮기는 세 이웃. Shift(베이·방향 유지), Rotate(베이 유지, 방향 변경), Move(모든 베이·방향 탐색)</td><td>7</td></tr>
+        <tr><td><strong>큰 재구성</strong></td><td>시드 블록 여러 개와 가까운 블록 7~13개를 함께 빼고, 매번 새로 뽑은 가중치 순서로 다시 넣는 큰 이웃</td><td>2, 7</td></tr>
+        <tr><td><strong>후보 해</strong></td><td>솔버가 마지막 호라이즌에서 JSON 한 줄씩 내보내는 최선 해. 파이썬 쪽이 좋은 순으로 다각형 교차를 다시 검증한다</td><td>6</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <div class="part">5 · 평가와 실험 (8장)</div>
+
+  <section>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>용어</th><th>뜻</th><th>장</th></tr></thead>
+      <tbody>
+        <tr><td><strong>제거 실험 (ablation)</strong></td><td>해법에서 부품 하나를 빼고 같은 조건으로 다시 돌려, 그 부품이 성능에 얼마나 기여하는지 재는 실험</td><td>8</td></tr>
+        <tr><td><strong>상대 점수</strong></td><td>문제마다 (비교 대상 중 최선 값 ÷ 이 버전의 값)을 구해 더한 값. 값의 크기가 다른 여러 문제를 공평하게 비교한다</td><td>8</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <div class="pager"><a href="#ch8">← 이전: 8장 결과와 교훈</a><span></span></div>
+</article>

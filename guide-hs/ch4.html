@@ -1,0 +1,706 @@
+<article class="chapter" id="ch4">
+  <header>
+    <div class="kicker">4 / 8</div>
+    <h1>충돌 판정: 부딪히는 상대 위치를 표로 만들어 둔다</h1>
+  </header>
+
+  <section>
+    <p class="lead">2단계의 탐색은 블록 하나를 놓을 자리를 찾을 때마다 "이 좌표에 놓으면 이미 있는 블록과 부딪히는가"를 수없이 묻습니다. 이 해법은 그때마다 다각형을 계산하지 않습니다. 두 블록이 부딪히는 위치 관계를 한 번 계산해 표로 저장하고, 그 뒤로는 표를 읽기만 합니다. 구구단을 외워 두고 곱셈을 할 때마다 꺼내 쓰는 것과 같습니다.</p>
+    <div class="note">
+      <p><strong>이 장을 읽으면 알게 되는 것</strong></p>
+      <p>두 도형이 겹치는지는 "상대 위치"만으로 정해진다는 것. 겹치는 상대 위치를 모은 영역(민코프스키 차)이 무엇이고 어떻게 구하는지. 그 영역을 "행마다 금지 구간"이라는 표로 저장하는 방법. 크레인 규칙(누가 누구를 가리는가)이 그 표에 어떻게 담기는지. 이 표를 이 책에서는 <strong>충돌 격자</strong>라고 부릅니다.</p>
+      <p><strong>미리 알아야 할 것</strong></p>
+      <p>1장의 층, 방향, 기준점, 규칙 A·B, "X가 M을 가린다", 볼록·오목 다각형. 3장의 바운딩 박스. 수학은 좌표평면의 점과 벡터의 덧셈·뺄셈, 도형의 평행이동, 원점 대칭.</p>
+    </div>
+    <p class="src">원래 프로그램에서는 <span class="mono">src/solver/collision.rs</span>(953줄)와 <span class="mono">src/solver/precompute.rs</span>(267줄)입니다. 이 장의 수치와 그림은 해설자가 그 계산 부분을 파이썬으로 옮겨 학습 데이터에 직접 돌린 결과입니다.</p>
+  </section>
+
+  <div class="part">1부 · 직사각형 두 개로 보는 생각의 뼈대</div>
+
+  <section>
+    <h2>겹치는지는 상대 위치에만 달려 있다</h2>
+    <p>가장 쉬운 도형으로 시작합니다. 직사각형 A는 가로 2.5, 세로 1.5이고, 직사각형 B는 가로 1.5, 세로 1.5입니다. 둘 다 왼쪽 아래 꼭짓점을 기준점으로 삼습니다. A를 기준점이 (0, 0)에 오도록 놓고, B의 기준점을 여기저기 옮겨 봅니다.</p>
+    <p>먼저 알아둘 것이 있습니다. A와 B를 똑같이 옆으로 3만큼 옮기면 둘이 겹친 모양은 그대로입니다. 그러므로 겹치는지 여부는 두 블록의 좌표 네 숫자가 아니라, <strong>B의 기준점이 A의 기준점에서 얼마나 떨어져 있는가</strong>라는 두 숫자로 정해집니다. 이것을 <strong>상대 위치</strong>라고 하고 (dx, dy)로 씁니다.</p>
+    <div class="formula">(dx, dy) = (B의 기준점) − (A의 기준점)</div>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 250" role="img" aria-label="왼쪽: 직사각형 A를 원점에 두고 직사각형 B를 상대 위치 (2, 1)과 (-2, 0)에 놓은 모습. (2, 1)에서는 겹치고 (-2, 0)에서는 겹치지 않는다. 오른쪽: 정수 상대 위치마다 겹치는지 표시한 격자. 겹치는 위치 12개가 가로 4, 세로 3의 직사각형 모양으로 모여 있다.">
+        <text x="20" y="20" font-size="12" font-weight="700" fill="currentColor">B를 두 군데에 놓아 본 모습</text>
+        <line x1="30" y1="170" x2="330" y2="170" class="s-muted" stroke-width=".8"/>
+        <line x1="120" y1="40" x2="120" y2="225" class="s-muted" stroke-width=".8"/>
+        <rect x="120" y="125" width="75" height="45" class="f-steel" stroke-width="1.5"/>
+        <text x="150" y="152" font-size="12" fill="currentColor" text-anchor="middle">A</text>
+        <rect x="180" y="95" width="45" height="45" class="f-crane" stroke-width="1.5" fill-opacity=".8"/>
+        <text x="210" y="112" font-size="11" fill="currentColor" text-anchor="middle">B</text>
+        <rect x="60" y="125" width="45" height="45" class="f-bay" stroke-width="1.5"/>
+        <text x="82" y="152" font-size="11" fill="currentColor" text-anchor="middle">B</text>
+        <circle cx="120" cy="170" r="3.5" fill="currentColor"/>
+        <circle cx="180" cy="140" r="3.5" fill="currentColor"/>
+        <circle cx="60" cy="170" r="3.5" fill="currentColor"/>
+        <text x="232" y="100" font-size="11" class="t-crane">상대 위치 (2, 1): 겹침</text>
+        <text x="30" y="118" font-size="11" class="t-muted">(−2, 0): 안 겹침</text>
+        <text x="124" y="186" font-size="10" class="t-muted">(0, 0)</text>
+        <text x="30" y="242" font-size="11" class="t-muted">검은 점 = 기준점. 눈금 1 = 30px</text>
+
+        <text x="390" y="20" font-size="12" font-weight="700" fill="currentColor">정수 상대 위치마다 겹치는지 표시</text>
+        <line x1="400" y1="140" x2="700" y2="140" class="s-muted" stroke-width=".8"/>
+        <line x1="520" y1="40" x2="520" y2="225" class="s-muted" stroke-width=".8"/>
+        <rect x="475" y="95" width="120" height="90" class="s-crane" stroke-width="1.5" stroke-dasharray="5 4"/>
+        <g class="s-muted" stroke-width="1.2">
+          <circle cx="430" cy="50" r="3"/><circle cx="460" cy="50" r="3"/><circle cx="490" cy="50" r="3"/><circle cx="520" cy="50" r="3"/><circle cx="550" cy="50" r="3"/><circle cx="580" cy="50" r="3"/><circle cx="610" cy="50" r="3"/><circle cx="640" cy="50" r="3"/>
+          <circle cx="430" cy="80" r="3"/><circle cx="460" cy="80" r="3"/><circle cx="490" cy="80" r="3"/><circle cx="520" cy="80" r="3"/><circle cx="550" cy="80" r="3"/><circle cx="580" cy="80" r="3"/><circle cx="610" cy="80" r="3"/><circle cx="640" cy="80" r="3"/>
+          <circle cx="430" cy="110" r="3"/><circle cx="460" cy="110" r="3"/><circle cx="610" cy="110" r="3"/><circle cx="640" cy="110" r="3"/>
+          <circle cx="430" cy="140" r="3"/><circle cx="460" cy="140" r="3"/><circle cx="610" cy="140" r="3"/><circle cx="640" cy="140" r="3"/>
+          <circle cx="430" cy="170" r="3"/><circle cx="460" cy="170" r="3"/><circle cx="610" cy="170" r="3"/><circle cx="640" cy="170" r="3"/>
+          <circle cx="430" cy="200" r="3"/><circle cx="460" cy="200" r="3"/><circle cx="490" cy="200" r="3"/><circle cx="520" cy="200" r="3"/><circle cx="550" cy="200" r="3"/><circle cx="580" cy="200" r="3"/><circle cx="610" cy="200" r="3"/><circle cx="640" cy="200" r="3"/>
+        </g>
+        <g fill="currentColor">
+          <circle cx="490" cy="110" r="5"/><circle cx="520" cy="110" r="5"/><circle cx="550" cy="110" r="5"/><circle cx="580" cy="110" r="5"/>
+          <circle cx="490" cy="140" r="5"/><circle cx="520" cy="140" r="5"/><circle cx="550" cy="140" r="5"/><circle cx="580" cy="140" r="5"/>
+          <circle cx="490" cy="170" r="5"/><circle cx="520" cy="170" r="5"/><circle cx="550" cy="170" r="5"/><circle cx="580" cy="170" r="5"/>
+        </g>
+        <g font-size="10" class="t-muted" text-anchor="middle">
+          <text x="430" y="222">−3</text><text x="490" y="222">−1</text><text x="520" y="222">0</text><text x="580" y="222">2</text><text x="640" y="222">4</text><text x="670" y="222">dx</text>
+        </g>
+        <g font-size="10" class="t-muted" text-anchor="end">
+          <text x="416" y="54">3</text><text x="416" y="114">1</text><text x="416" y="144">0</text><text x="416" y="174">−1</text><text x="416" y="204">−2</text>
+        </g>
+        <text x="700" y="34" font-size="10" class="t-muted" text-anchor="end">dy ↑</text>
+        <text x="390" y="242" font-size="11" class="t-muted">검은 점 12개 = 겹치는 위치. 점선 = 겹치는 상대 위치의 영역</text>
+      </svg>
+      </div>
+      <figcaption>오른쪽 그림에서 점 하나는 "B의 기준점을 그 상대 위치에 놓는 경우" 하나입니다. 검은 점은 넓이가 겹치는 위치, 작은 동그라미는 겹치지 않는 위치입니다.</figcaption>
+    </figure>
+    <p>직사각형끼리는 계산이 쉽습니다. B를 (dx, dy)에 놓으면 B는 가로로 dx부터 dx + 1.5까지, 세로로 dy부터 dy + 1.5까지를 차지합니다. A는 가로 0~2.5, 세로 0~1.5입니다. 두 직사각형이 넓이를 갖고 겹치려면 가로 범위도 겹치고 세로 범위도 겹쳐야 하므로</p>
+    <div class="formula">−1.5 &lt; dx &lt; 2.5 &nbsp;그리고&nbsp; −1.5 &lt; dy &lt; 1.5</div>
+    <p>입니다. 이 문제에서 블록의 좌표는 정수이므로(1장) 상대 위치도 정수입니다. 조건을 만족하는 정수는 dx가 −1, 0, 1, 2의 네 가지, dy가 −1, 0, 1의 세 가지로 모두 12개입니다. 그림 오른쪽의 검은 점입니다.</p>
+    <p>여기서 이 장 전체의 생각이 나옵니다.</p>
+    <ul class="plain">
+      <li><strong>겹치는 상대 위치는 흩어져 있지 않고 한 덩어리 영역을 이룹니다</strong>(점선 직사각형). A를 B의 크기만큼 왼쪽과 아래로 넓힌 모양입니다.</li>
+      <li>이 영역을 미리 구해 두면, "B를 여기에 놓으면 A와 겹치나?"라는 질문은 "(dx, dy)가 이 영역 안에 있나?"라는 질문으로 바뀝니다. 도형 두 개를 비교하는 일이 점 하나를 표에서 찾는 일이 됩니다.</li>
+      <li>영역은 <strong>행(dy)마다 금지되는 dx의 구간</strong>으로 적어 둘 수 있습니다. 이 예라면 아래 세 줄이 표의 전부입니다.</li>
+    </ul>
+<pre>dy =  1 :  dx가 −1 ~ 2 이면 겹침
+dy =  0 :  dx가 −1 ~ 2 이면 겹침
+dy = −1 :  dx가 −1 ~ 2 이면 겹침
+그 밖의 dy : 겹치지 않음</pre>
+  </section>
+
+  <section>
+    <h2>이 영역의 이름: 민코프스키 차</h2>
+    <p>점선 영역을 식으로 쓰면 왜 그런 모양이 되는지 알 수 있습니다. 좌표평면의 점을 위치벡터로 생각합니다. B를 d = (dx, dy)만큼 평행이동하면, B의 점 b는 b + d로 갑니다. 옮겨진 B가 A와 점 하나라도 함께 가지려면, A의 어떤 점 a와 B의 어떤 점 b에 대해</p>
+    <div class="formula">a = b + d, &nbsp;즉&nbsp; d = a − b</div>
+    <p>여야 합니다. 그러므로 A와 B가 만나게 되는 상대 위치 d를 모두 모으면, "A의 점에서 B의 점을 뺀 벡터 a − b를 전부 모은 집합"이 됩니다. 수학에서는 이 집합을 A와 B의 <strong>민코프스키 차</strong>라고 부릅니다.</p>
+    <div class="formula">A와 B의 민코프스키 차 = { a − b | a는 A의 점, b는 B의 점 }</div>
+    <p>직사각형 예에서 확인해 봅니다. a의 x 좌표는 0~2.5, b의 x 좌표는 0~1.5이므로 a − b의 x 좌표는 0 − 1.5 = −1.5부터 2.5 − 0 = 2.5까지입니다. y 좌표도 같은 방법으로 −1.5부터 1.5까지입니다. 앞에서 구한 점선 직사각형과 같습니다. (경계선 위는 두 도형이 변만 맞닿는 위치입니다. 규칙상 맞닿는 것은 겹침이 아니므로 부등호에 등호가 빠져 있었습니다.)</p>
+    <p>도형을 겹치지 않게 채우는 문제를 연구하는 분야에서는 같은 것을 no-fit polygon(들어갈 수 없는 다각형)이라고 부릅니다. 이름은 달라도 뜻은 같습니다. "B의 기준점을 이 영역 안에 놓으면 A와 겹친다"는 영역입니다. 이 장의 충돌 격자는 이 영역을 블록 쌍마다 미리 구해서 "행마다 금지 구간"으로 저장한 것입니다.</p>
+  </section>
+
+  <div class="part">2부 · 실제 블록 두 개</div>
+
+  <section>
+    <h2>예시로 쓸 블록</h2>
+    <p>이제 실제 데이터입니다. 이 장의 나머지에서는 <span class="mono">prelim_prob_1</span>의 블록 두 개를 씁니다. 둘 다 방향 0입니다. 블록 2는 1장과 3장에서 본 그 블록입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th></th><th>층 수</th><th>층별 꼭짓점 수와 넓이</th><th>전체 크기(가로 × 세로)</th><th>특징</th></tr></thead>
+      <tbody>
+        <tr><td>블록 2 (<span class="mono">blocks[2]</span>)</td><td>2</td><td>층 0: 4개, 33.8 · 층 1: 6개, 123.5</td><td>20.6 × 11.2</td><td>층 1이 층 0보다 넓다(돌출부)</td></tr>
+        <tr><td>블록 4 (<span class="mono">blocks[4]</span>)</td><td>1</td><td>층 0: 9개, 30.0</td><td>10.0 × 5.2</td><td>낮은 판. 오목한 곳이 있다</td></tr>
+      </tbody>
+    </table>
+    </div>
+<pre><span class="c"># prelim_prob_1.json 의 blocks[4], 방향 0 (층 하나, 꼭짓점 9개)</span>
+[[0.0, 0.0], [3.1925, -0.1636], [3.3167, -2.5982], [6.4649, -2.6928], [9.792, -2.7252],
+ [10.0183, -0.011], [6.609, -0.0052], [7.0716, 2.3581], [3.7686, 2.442]]</pre>
+    <p>우선 문제를 가장 단순하게 줄여서, 블록 2의 층 0과 블록 4의 층 0 두 다각형만 봅니다. 층이 여럿일 때의 처리는 4부에서 다룹니다. 직사각형 예의 A가 블록 2의 층 0, B가 블록 4의 층 0입니다.</p>
+    <p>두 다각형의 바운딩 박스가 닿지도 않을 만큼 멀면 볼 필요가 없으므로, dx가 −21~2, dy가 −10~4인 범위만 보면 됩니다. 그 안의 정수 상대 위치는 24 × 15 = 360개입니다. 360개 전부에 대해 두 다각형이 겹치는지를 직접 계산한 결과가 아래 오른쪽 그림입니다.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 290" role="img" aria-label="왼쪽: 블록 2의 층 0을 원점에 두고 블록 4를 두 위치에 놓은 모습. 상대 위치 (-8, -3)에서는 겹치고 (2, 1)에서는 겹치지 않는다. 오른쪽: 정수 상대 위치 360개 각각에 대해 겹치는지 계산한 결과. 겹치는 161개가 한 덩어리 모양을 이룬다.">
+        <text x="20" y="20" font-size="12" fill="currentColor" font-weight="700">배치 두 가지</text>
+        <polygon points="165,96 36.9,96.3 36.2,109.2 178.9,184.5" class="f-steel" stroke-width="1.5"/>
+        <polygon points="53,138 97.7,140.3 99.4,174.4 143.5,175.7 190.1,176.2 193.3,138.2 145.5,138.1 152,105 105.8,103.8" class="f-crane" stroke-width="1.5" fill-opacity=".7"/>
+        <polygon points="193,82 237.7,84.3 239.4,118.4 283.5,119.7 330.1,120.2 333.3,82.2 285.5,82.1 292,49 245.8,47.8" class="s-ok" stroke-width="1.5"/>
+        <circle cx="165" cy="96" r="3.5" fill="currentColor"/>
+        <circle cx="53" cy="138" r="3.5" class="t-crane"/>
+        <circle cx="193" cy="82" r="3.5" class="t-ok"/>
+        <text x="161" y="88" font-size="11" fill="currentColor" text-anchor="end">기준점 (0, 0)</text>
+        <text x="36.2" y="74" font-size="11" fill="currentColor">블록 2 층 0</text>
+        <text x="199" y="37.8" font-size="11" class="t-ok">블록 4, 상대 위치 (2, 1): 안 겹침</text>
+        <text x="49" y="192.6" font-size="11" class="t-crane">블록 4, 상대 위치 (−8, −3): 겹침</text>
+        <text x="20" y="268" font-size="11" class="t-muted">상대 위치 = 블록 4의 기준점 − 블록 2의 기준점</text>
+        <text x="20" y="283" font-size="11" class="t-muted">좌표 1 = 14px</text>
+        <text x="372" y="20" font-size="12" fill="currentColor" font-weight="700">정수 상대 위치 360개 전부를 계산한 결과</text>
+        <polygon points="650,100 531.1,100.3 530.4,112.3 662.9,182.2" class="s-muted" stroke-width="1" stroke-dasharray="3 3"/>
+        <line x1="377" y1="230" x2="676.4" y2="230" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="377" y1="217" x2="676.4" y2="217" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="377" y1="204" x2="676.4" y2="204" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="377" y1="191" x2="676.4" y2="191" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="377" y1="178" x2="676.4" y2="178" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="377" y1="165" x2="676.4" y2="165" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="377" y1="152" x2="676.4" y2="152" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="377" y1="139" x2="676.4" y2="139" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="377" y1="126" x2="676.4" y2="126" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="377" y1="113" x2="676.4" y2="113" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="377" y1="100" x2="676.4" y2="100" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="377" y1="87" x2="676.4" y2="87" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="377" y1="74" x2="676.4" y2="74" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="377" y1="61" x2="676.4" y2="61" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="377" y1="48" x2="676.4" y2="48" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="559" y1="204" x2="624.4" y2="204" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="533" y1="191" x2="637.4" y2="191" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="507" y1="178" x2="650.4" y2="178" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="481" y1="165" x2="650.4" y2="165" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="468" y1="152" x2="650.4" y2="152" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="442" y1="139" x2="650.4" y2="139" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="429" y1="126" x2="650.4" y2="126" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="403" y1="113" x2="650.4" y2="113" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="403" y1="100" x2="637.4" y2="100" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="403" y1="87" x2="598.4" y2="87" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <line x1="416" y1="74" x2="598.4" y2="74" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <circle cx="650" cy="100" r="3.5" class="s-crane" stroke-width="1.5"/>
+        <circle cx="546" cy="139" r="6.5" class="s-line" stroke-width="1.5"/>
+        <circle cx="676" cy="87" r="6.5" class="s-ok" stroke-width="1.5"/>
+        <text x="685" y="81" font-size="10" class="t-ok" text-anchor="start">(2, 1)</text>
+        <text x="546" y="158" font-size="10" fill="currentColor" text-anchor="middle">(−8, −3)</text>
+        <line x1="650" y1="96" x2="650" y2="42" class="s-crane" stroke-width="1"/>
+        <text x="650" y="38" font-size="10" class="t-crane" text-anchor="middle">(0, 0)</text>
+        <text x="390" y="246" font-size="10" class="t-muted" text-anchor="middle">−20</text>
+        <text x="455" y="246" font-size="10" class="t-muted" text-anchor="middle">−15</text>
+        <text x="520" y="246" font-size="10" class="t-muted" text-anchor="middle">−10</text>
+        <text x="585" y="246" font-size="10" class="t-muted" text-anchor="middle">−5</text>
+        <text x="650" y="246" font-size="10" class="t-muted" text-anchor="middle">0</text>
+        <text x="688" y="246" font-size="10" class="t-muted">dx</text>
+        <text x="368" y="233.5" font-size="10" class="t-muted" text-anchor="end">−10</text>
+        <text x="368" y="168.5" font-size="10" class="t-muted" text-anchor="end">−5</text>
+        <text x="368" y="103.5" font-size="10" class="t-muted" text-anchor="end">0</text>
+        <text x="368" y="51.5" font-size="10" class="t-muted" text-anchor="end">4</text>
+        <text x="368" y="38" font-size="10" class="t-muted" text-anchor="end">dy</text>
+        <line x1="378" y1="274" x2="378.4" y2="274" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 13"/>
+        <text x="388" y="278" font-size="11" fill="currentColor">겹침 161개 (넓이 &gt; 0)</text>
+        <circle cx="522" cy="274" r="3.5" class="s-crane" stroke-width="1.5"/>
+        <text x="532" y="278" font-size="11" fill="currentColor">꼭짓점만 맞닿음 1개 (겹침 아님)</text>
+        </svg>
+      </div>
+      <figcaption>왼쪽은 블록 2의 층 0(파랑)을 원점에 두고 블록 4를 두 군데에 놓아 본 모습입니다. 오른쪽은 블록 4의 기준점을 정수 격자의 각 점에 놓았을 때의 결과로, 굵은 점이 겹치는 위치입니다. 점선은 블록 2의 층 0을 같은 좌표에 겹쳐 그린 것입니다.</figcaption>
+    </figure>
+    <p>겹치는 위치 161개는 직사각형 예에서처럼 한 덩어리를 이룹니다. 모양은 직사각형이 아니라 비스듬한 다각형입니다. 이것이 블록 2의 층 0과 블록 4의 층 0의 민코프스키 차입니다.</p>
+    <p>그림에서 (0, 0)은 따로 표시했습니다. 두 블록의 기준점이 같은 자리에 오는 위치인데, 이때 두 다각형은 꼭짓점 하나만 맞닿고 넓이는 겹치지 않습니다. 규칙상 겹침이 아닙니다. 그런데 충돌 격자는 이 위치도 금지로 저장합니다. 이유는 3부의 셋째 단계에서 나옵니다.</p>
+    <div class="note">
+      <p><strong>3부의 계획</strong></p>
+      <p>360개를 하나씩 직접 판정하는 위 방식은 느립니다. 다각형 두 개가 겹치는지 계산하는 일 자체가 무겁고, 그것을 위치마다 되풀이해야 하기 때문입니다. 원래 프로그램은 덩어리의 <strong>윤곽을 먼저 구하고</strong>, 그 윤곽을 가로줄로 잘라서 구간으로 저장합니다. 직사각형은 윤곽을 암산으로 구했지만, 일반 다각형은 네 단계가 필요합니다.</p>
+    </div>
+  </section>
+
+  <div class="part">3부 · 충돌 격자를 만드는 네 단계</div>
+
+  <section>
+    <h2>1단계: 오목한 다각형을 삼각형으로 나눈다</h2>
+    <p>민코프스키 차의 윤곽을 쉽게 구하는 방법(2단계)은 두 도형이 모두 볼록일 때만 통합니다. 그런데 블록의 층은 대부분 오목합니다(1장: 층의 68%). 그래서 먼저 각 층을 볼록한 조각들로 나눕니다. 삼각형은 언제나 볼록이므로, 삼각형으로 나누면 됩니다.</p>
+    <p>조각으로 나눠도 되는 이유는 간단합니다. A를 조각 A₁, A₂, …로, B를 조각 B₁, B₂, …로 나눴다면, "A와 B가 겹친다"는 "A의 어떤 조각과 B의 어떤 조각이 겹친다"와 같은 말입니다. 그러므로 조각 한 쌍마다 금지 영역을 구해서 모두 합치면 전체의 금지 영역이 됩니다.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 262" role="img" aria-label="비볼록 다각형 두 개를 삼각형으로 나눈 모습. 블록 4의 층 0은 꼭짓점 9개에서 삼각형 7개로, 블록 2의 층 1은 꼭짓점 6개에서 삼각형 4개로 나뉜다. 삼각형에는 잘라낸 순서가 적혀 있다.">
+        <polygon points="120.4,63.4 30,122 106.6,125.9" class="f-steel" stroke-width="1"/>
+        <polygon points="120.4,63.4 106.6,125.9 109.6,184.4" class="f-hull" stroke-width="1"/>
+        <polygon points="120.4,63.4 109.6,184.4 185.2,186.6" class="f-steel" stroke-width="1"/>
+        <polygon points="185.2,186.6 265,187.4 270.4,122.3" class="f-hull" stroke-width="1"/>
+        <polygon points="185.2,186.6 270.4,122.3 188.6,122.1" class="f-steel" stroke-width="1"/>
+        <polygon points="120.4,63.4 185.2,186.6 188.6,122.1" class="f-hull" stroke-width="1"/>
+        <polygon points="188.6,122.1 199.7,65.4 120.4,63.4" class="f-steel" stroke-width="1"/>
+        <polygon points="30,122 106.6,125.9 109.6,184.4 185.2,186.6 265,187.4 270.4,122.3 188.6,122.1 199.7,65.4 120.4,63.4" class="s-line" stroke-width="2"/>
+        <text x="85.7" y="107.8" font-size="11" fill="currentColor" text-anchor="middle" font-weight="700">1</text>
+        <text x="112.2" y="128.6" font-size="11" fill="currentColor" text-anchor="middle" font-weight="700">2</text>
+        <text x="138.4" y="148.8" font-size="11" fill="currentColor" text-anchor="middle" font-weight="700">3</text>
+        <text x="240.2" y="169.4" font-size="11" fill="currentColor" text-anchor="middle" font-weight="700">4</text>
+        <text x="214.7" y="147.7" font-size="11" fill="currentColor" text-anchor="middle" font-weight="700">5</text>
+        <text x="164.7" y="128" font-size="11" fill="currentColor" text-anchor="middle" font-weight="700">6</text>
+        <text x="169.6" y="87.6" font-size="11" fill="currentColor" text-anchor="middle" font-weight="700">7</text>
+        <text x="19.4" y="128.3" font-size="10" class="t-muted" text-anchor="middle">v0</text>
+        <text x="98.8" y="137.2" font-size="10" class="t-muted" text-anchor="middle">v1</text>
+        <text x="101.9" y="195.7" font-size="10" class="t-muted" text-anchor="middle">v2</text>
+        <text x="184.9" y="201.1" font-size="10" class="t-muted" text-anchor="middle">v3</text>
+        <text x="272.4" y="199" font-size="10" class="t-muted" text-anchor="middle">v4</text>
+        <text x="278.5" y="118.3" font-size="10" class="t-muted" text-anchor="middle">v5</text>
+        <text x="197.1" y="118.6" font-size="10" class="t-muted" text-anchor="middle">v6</text>
+        <text x="208.3" y="62" font-size="10" class="t-muted" text-anchor="middle">v7</text>
+        <text x="117.5" y="56.3" font-size="10" class="t-muted" text-anchor="middle">v8</text>
+        <text x="20" y="20" font-size="12" fill="currentColor" font-weight="700">블록 4 · 층 0</text>
+        <text x="20" y="36" font-size="11" class="t-muted">꼭짓점 9개 → 삼각형 7개 (넓이 30.04)</text>
+        <polygon points="640.4,240.2 676.4,245.2 650.7,55.1" class="f-steel" stroke-width="1"/>
+        <polygon points="640.4,240.2 650.7,55.1 482,58" class="f-hull" stroke-width="1"/>
+        <polygon points="640.4,240.2 482,58 326.5,58.4" class="f-steel" stroke-width="1"/>
+        <polygon points="326.5,58.4 325.6,74 640.4,240.2" class="f-hull" stroke-width="1"/>
+        <polygon points="676.4,245.2 650.7,55.1 482,58 326.5,58.4 325.6,74 640.4,240.2" class="s-line" stroke-width="2"/>
+        <text x="655.9" y="184.1" font-size="11" fill="currentColor" text-anchor="middle" font-weight="700">1</text>
+        <text x="591.1" y="121.7" font-size="11" fill="currentColor" text-anchor="middle" font-weight="700">2</text>
+        <text x="483" y="122.8" font-size="11" fill="currentColor" text-anchor="middle" font-weight="700">3</text>
+        <text x="430.8" y="128.2" font-size="11" fill="currentColor" text-anchor="middle" font-weight="700">4</text>
+        <text x="684.2" y="256.5" font-size="10" class="t-muted" text-anchor="middle">v0</text>
+        <text x="657.9" y="50.2" font-size="10" class="t-muted" text-anchor="middle">v1</text>
+        <text x="481.9" y="50.5" font-size="10" class="t-muted" text-anchor="middle">v2</text>
+        <text x="318.9" y="53.9" font-size="10" class="t-muted" text-anchor="middle">v3</text>
+        <text x="316" y="82.9" font-size="10" class="t-muted" text-anchor="middle">v4</text>
+        <text x="637.1" y="254.1" font-size="10" class="t-muted" text-anchor="middle">v5</text>
+        <text x="330" y="20" font-size="12" fill="currentColor" font-weight="700">블록 2 · 층 1</text>
+        <text x="330" y="36" font-size="11" class="t-muted">꼭짓점 6개 → 삼각형 4개 (넓이 123.47)</text>
+        <text x="20" y="252" font-size="11" class="t-muted">숫자 = 잘라낸 순서. 굵은 선 = 원래 다각형. 좌표 1 = 24px(왼쪽), 17px(오른쪽)</text>
+        </svg>
+      </div>
+      <figcaption>실제 좌표로 그린 분할 결과입니다. 블록 4의 층 0은 꼭짓점 9개에서 삼각형 7개로, 블록 2의 층 1은 꼭짓점 6개에서 삼각형 4개로 나뉩니다. 무늬는 이웃한 조각을 구분하려고 번갈아 넣은 것이고, 숫자는 잘라 낸 순서입니다. v0은 입력의 첫 꼭짓점입니다.</figcaption>
+    </figure>
+    <p>나누는 방법은 <strong>귀 자르기</strong>(ear clipping)입니다. 다각형의 꼭짓점 하나와 그 양옆 두 꼭짓점이 만드는 삼각형이 다각형 안에 온전히 들어 있으면, 그 꼭짓점을 "귀"라고 합니다. 귀가 되려면 그 꼭짓점이 바깥으로 볼록하게 나와 있어야 하고, 그 삼각형 안에 다른 꼭짓점이 없어야 합니다. 절차는 이렇습니다.</p>
+<pre><span class="c"># 귀 자르기 (src/solver/collision.rs:484)</span>
+while 남은 꼭짓점이 3개보다 많다:
+    남은 꼭짓점을 앞에서부터 보면서 귀인 것을 하나 찾는다
+    (앞 꼭짓점, 귀, 뒤 꼭짓점) 삼각형을 기록하고, 귀를 다각형에서 뺀다
+남은 3개를 마지막 삼각형으로 기록</pre>
+    <p>귀를 하나 자를 때마다 꼭짓점이 하나 줄고 삼각형이 하나 생깁니다. 꼭짓점이 3개 남으면 그것이 마지막 삼각형이므로, 꼭짓점 n개짜리 다각형은 삼각형 n − 2개가 됩니다. n각형의 내각의 합이 180° × (n − 2)인 것과 같은 이유입니다. 위 그림의 블록 4에서 첫 귀는 v0이고, 삼각형 (v8, v0, v1)이 1번 조각입니다.</p>
+    <ul class="plain">
+      <li><strong>이미 볼록이면 나누지 않습니다.</strong> 블록 2의 층 0(사각형)은 그대로 조각 하나입니다.</li>
+      <li><strong>검산합니다.</strong> 삼각형들의 넓이 합이 원래 다각형의 넓이와 같아야 합니다. 블록 4는 4.21 + 0.86 + 7.96 + 4.52 + 4.58 + 3.99 + 3.92 = 30.04로 맞습니다.</li>
+    </ul>
+    <p class="src">학습 데이터의 모든 블록, 모든 방향의 층 53,048개에 적용해 보면, 볼록이라 그대로 쓰는 층이 32%, 삼각형으로 나뉘는 층이 68%이고 나누기에 실패한 층은 없었습니다.</p>
+  </section>
+
+  <section>
+    <h2>2단계: 볼록 조각 한 쌍의 민코프스키 차를 구한다</h2>
+    <p>민코프스키 차는 a − b의 집합이었습니다. a − b = a + (−b)이므로, B를 원점에 대해 대칭시킨 도형 −B(모든 꼭짓점의 부호를 바꾼 것)를 만들어 두면 "A의 점과 −B의 점을 더한 것의 집합"으로 볼 수 있습니다. 그리고 볼록 다각형 두 개에 대해서는 이 집합의 윤곽을 구하는 아주 간단한 방법이 알려져 있습니다.</p>
+    <div class="note">
+      <p><strong>볼록 다각형 A와 −B의 변을 전부 모아, 기울어진 각도 순으로 이어 붙이면 그것이 윤곽이다.</strong></p>
+      <p>직사각형 예로 확인해 봅니다. A의 변은 오른쪽으로 2.5, 위로 1.5, 왼쪽으로 2.5, 아래로 1.5입니다. −B의 변은 오른쪽 1.5, 위 1.5, 왼쪽 1.5, 아래 1.5입니다. 같은 방향끼리 이어 붙이면 오른쪽 4, 위 3, 왼쪽 4, 아래 3이 되어 가로 4, 세로 3인 직사각형이 됩니다. 1부의 점선 직사각형과 크기가 같습니다.</p>
+    </div>
+    <p>실제 조각 한 쌍으로 보겠습니다. A는 블록 2의 층 0(변 4개), B는 블록 4의 1번 삼각형(변 3개)입니다.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 300" role="img" aria-label="왼쪽: 볼록 조각 A(블록 2 층 0)와 B(블록 4의 첫 삼각형), 그리고 B를 원점 대칭한 마이너스 B. 오른쪽: 두 조각의 변 7개를 각도 순으로 이어 만든 민코프스키 차 다각형과, 그것을 정수 dy마다 자른 금지 dx 구간.">
+        <text x="20" y="20" font-size="12" fill="currentColor" font-weight="700">재료: 볼록 조각 A, B와 −B</text>
+        <polygon points="150,76 40.2,76.3 39.6,87.3 161.9,151.9" class="f-steel" stroke-width="1.5"/>
+        <circle cx="150" cy="76" r="3" fill="currentColor"/>
+        <text x="87.6" y="95.2" font-size="13" fill="currentColor" font-weight="700">A</text>
+        <text x="39.6" y="157.6" font-size="11" class="t-muted">블록 2 층 0 (변 4개)</text>
+        <polygon points="250.2,46.7 205,76 243.3,78" class="f-hull" stroke-width="1.5"/>
+        <circle cx="205" cy="76" r="3" fill="currentColor"/>
+        <text x="232.6" y="71" font-size="12" fill="currentColor" text-anchor="middle" font-weight="700">B</text>
+        <text x="199" y="38.7" font-size="11" class="t-muted">블록 4의 삼각형 1 (변 3개)</text>
+        <polygon points="206.8,179.3 252,150 213.7,148" class="s-line" stroke-width="1.5" stroke-dasharray="4 3" style="stroke:var(--hull)"/>
+        <circle cx="252" cy="150" r="3" fill="currentColor"/>
+        <text x="224.4" y="163" font-size="12" fill="currentColor" text-anchor="middle" font-weight="700">−B</text>
+        <text x="200.4" y="197.3" font-size="11" class="t-muted">B를 원점 대칭한 것</text>
+        <text x="20" y="232" font-size="11" class="t-muted">검은 점 = 각 조각의 원점(블록의 기준점)</text>
+        <text x="20" y="248" font-size="11" class="t-muted">좌표 1 = 12px</text>
+        <text x="360" y="20" font-size="12" fill="currentColor" font-weight="700">A ⊕ (−B): 변 7개를 각도 순으로 이은 결과와 정수 dy 단면</text>
+        <polygon points="548.8,223 612.9,181.5 596,74 541.7,71.2 386.2,71.6 376.4,115.9 375.5,131.5" class="f-bay" style="stroke:none" fill-opacity=".6"/>
+        <line x1="358" y1="210" x2="623.2" y2="210" class="s-muted" stroke-width=".6"/>
+        <line x1="358" y1="210" x2="613.4" y2="210" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <line x1="528" y1="210" x2="562.4" y2="210" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <text x="352" y="213.5" font-size="10" class="t-muted" text-anchor="end">dy = −8</text>
+        <text x="629.2" y="213.5" font-size="10" fill="currentColor" text-anchor="start">[−4, −2]</text>
+        <line x1="358" y1="193" x2="623.2" y2="193" class="s-muted" stroke-width=".6"/>
+        <line x1="358" y1="193" x2="613.4" y2="193" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <line x1="494" y1="193" x2="579.4" y2="193" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <text x="352" y="196.5" font-size="10" class="t-muted" text-anchor="end">dy = −7</text>
+        <text x="629.2" y="196.5" font-size="10" fill="currentColor" text-anchor="start">[−6, −1]</text>
+        <line x1="358" y1="176" x2="623.2" y2="176" class="s-muted" stroke-width=".6"/>
+        <line x1="358" y1="176" x2="613.4" y2="176" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <line x1="460" y1="176" x2="596.4" y2="176" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <text x="352" y="179.5" font-size="10" class="t-muted" text-anchor="end">dy = −6</text>
+        <text x="629.2" y="179.5" font-size="10" fill="currentColor" text-anchor="start">[−8, 0]</text>
+        <line x1="358" y1="159" x2="623.2" y2="159" class="s-muted" stroke-width=".6"/>
+        <line x1="358" y1="159" x2="613.4" y2="159" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <line x1="443" y1="159" x2="596.4" y2="159" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <text x="352" y="162.5" font-size="10" class="t-muted" text-anchor="end">dy = −5</text>
+        <text x="629.2" y="162.5" font-size="10" fill="currentColor" text-anchor="start">[−9, 0]</text>
+        <line x1="358" y1="142" x2="623.2" y2="142" class="s-muted" stroke-width=".6"/>
+        <line x1="358" y1="142" x2="613.4" y2="142" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <line x1="409" y1="142" x2="596.4" y2="142" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <text x="352" y="145.5" font-size="10" class="t-muted" text-anchor="end">dy = −4</text>
+        <text x="629.2" y="145.5" font-size="10" fill="currentColor" text-anchor="start">[−11, 0]</text>
+        <line x1="358" y1="125" x2="623.2" y2="125" class="s-muted" stroke-width=".6"/>
+        <line x1="358" y1="125" x2="613.4" y2="125" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <line x1="392" y1="125" x2="596.4" y2="125" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <text x="352" y="128.5" font-size="10" class="t-muted" text-anchor="end">dy = −3</text>
+        <text x="629.2" y="128.5" font-size="10" fill="currentColor" text-anchor="start">[−12, 0]</text>
+        <line x1="358" y1="108" x2="623.2" y2="108" class="s-muted" stroke-width=".6"/>
+        <line x1="358" y1="108" x2="613.4" y2="108" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <line x1="392" y1="108" x2="596.4" y2="108" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <text x="352" y="111.5" font-size="10" class="t-muted" text-anchor="end">dy = −2</text>
+        <text x="629.2" y="111.5" font-size="10" fill="currentColor" text-anchor="start">[−12, 0]</text>
+        <line x1="358" y1="91" x2="623.2" y2="91" class="s-muted" stroke-width=".6"/>
+        <line x1="358" y1="91" x2="613.4" y2="91" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <line x1="392" y1="91" x2="596.4" y2="91" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <text x="352" y="94.5" font-size="10" class="t-muted" text-anchor="end">dy = −1</text>
+        <text x="629.2" y="94.5" font-size="10" fill="currentColor" text-anchor="start">[−12, 0]</text>
+        <line x1="358" y1="74" x2="623.2" y2="74" class="s-muted" stroke-width=".6"/>
+        <line x1="358" y1="74" x2="613.4" y2="74" class="s-muted" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <line x1="392" y1="74" x2="596.4" y2="74" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <text x="352" y="77.5" font-size="10" class="t-muted" text-anchor="end">dy = 0</text>
+        <text x="629.2" y="77.5" font-size="10" fill="currentColor" text-anchor="start">[−12, 0]</text>
+        <line x1="548.8" y1="223" x2="612.9" y2="181.5" class="s-line" style="stroke:var(--hull)" stroke-dasharray="5 3" stroke-width="2.2"/>
+        <line x1="612.9" y1="181.5" x2="596" y2="74" class="s-steel" stroke-width="2.2"/>
+        <line x1="596" y1="74" x2="541.7" y2="71.2" class="s-line" style="stroke:var(--hull)" stroke-dasharray="5 3" stroke-width="2.2"/>
+        <line x1="541.7" y1="71.2" x2="386.2" y2="71.6" class="s-steel" stroke-width="2.2"/>
+        <line x1="386.2" y1="71.6" x2="376.4" y2="115.9" class="s-line" style="stroke:var(--hull)" stroke-dasharray="5 3" stroke-width="2.2"/>
+        <line x1="376.4" y1="115.9" x2="375.5" y2="131.5" class="s-steel" stroke-width="2.2"/>
+        <line x1="375.5" y1="131.5" x2="548.8" y2="223" class="s-steel" stroke-width="2.2"/>
+        <circle cx="548.8" cy="223" r="3.5" fill="currentColor"/>
+        <text x="556.8" y="237" font-size="10" class="t-muted">시작점 (−2.77, −8.76)</text>
+        <text x="629.2" y="60.5" font-size="10" class="t-muted" text-anchor="start">금지 dx</text>
+        <line x1="372" y1="262" x2="396" y2="262" class="s-steel" stroke-width="2.2"/>
+        <text x="402" y="266" font-size="11" fill="currentColor">A에서 온 변</text>
+        <line x1="476" y1="262" x2="500" y2="262" class="s-line" style="stroke:var(--hull)" stroke-dasharray="5 3" stroke-width="2.2"/>
+        <text x="506" y="266" font-size="11" fill="currentColor">−B에서 온 변</text>
+        <line x1="596" y1="262" x2="596.4" y2="262" class="s-crane" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 17"/>
+        <text x="606" y="266" font-size="11" fill="currentColor">금지 상대 위치</text>
+        <text x="372" y="286" font-size="11" class="t-muted">좌표 1 = 17px. 주황 점이 92개.</text>
+        </svg>
+      </div>
+      <figcaption>왼쪽은 재료인 A, B, 그리고 B를 원점 대칭한 −B입니다. 오른쪽이 결과입니다. 그림의 "A ⊕ (−B)"는 "A의 점과 −B의 점을 더한 것의 집합", 곧 민코프스키 차를 나타내는 기호입니다. 변 7개 중 4개는 A에서, 3개는 −B에서 왔습니다. 가로선은 정수 dy이고, 굵은 점은 3단계에서 저장되는 금지 상대 위치입니다(92개).</figcaption>
+    </figure>
+    <p>두 다각형 모두 가장 아래 꼭짓점에서 출발해 시계 반대 방향으로 돌면, 변이 향하는 각도가 0°에서 360°까지 차례로 커집니다. 볼록 다각형이기 때문에 그렇습니다(오목한 곳이 있으면 각도가 되돌아갑니다). 그래서 이미 각도 순으로 놓여 있는 두 변 목록을 순서를 지키며 하나로 합치기만 하면 됩니다. 변이 4개, 3개이면 덧셈 7번으로 끝납니다. 볼록 조각으로 나누는 수고를 들이는 이유가 이 간단함입니다.</p>
+  </section>
+
+  <section>
+    <h2>3단계: 정수 dy마다 잘라 금지 dx 구간으로 바꾼다</h2>
+    <p>필요한 것은 다각형 자체가 아니라 그 안에 들어 있는 정수 점입니다. 볼록 다각형을 가로줄 하나로 자르면 선분 하나, 곧 구간 하나가 나옵니다. 그래서 정수 dy마다 가로줄을 긋고, 그 줄에서 다각형이 차지하는 dx의 범위를 구해 "이 dy에서는 dx가 여기부터 여기까지 금지"로 저장합니다. 위 그림의 조각 쌍에서는 이렇게 됩니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>dy</th><th>가로줄이 다각형과 만나는 범위</th><th>저장되는 정수 구간</th><th>점 개수</th></tr></thead>
+      <tbody>
+        <tr><td>−8</td><td>−4.2223 ~ −1.5953</td><td>−4 ~ −2</td><td>3</td></tr>
+        <tr><td>−7</td><td>−6.1176 ~ −0.0520</td><td>−6 ~ −1</td><td>6</td></tr>
+        <tr><td>−6</td><td>−8.0130 ~ 0.9437</td><td>−8 ~ 0</td><td>9</td></tr>
+        <tr><td>−5</td><td>−9.9083 ~ 0.7864</td><td>−9 ~ 0</td><td>10</td></tr>
+        <tr><td>−4</td><td>−11.8036 ~ 0.6291</td><td>−11 ~ 0</td><td>12</td></tr>
+        <tr><td>−3, −2, −1</td><td>약 −12.9 ~ 0.5</td><td>−12 ~ 0</td><td>13씩</td></tr>
+        <tr><td>0</td><td>−12.3717 ~ 0.0000</td><td>−12 ~ 0</td><td>13</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>범위의 왼쪽 끝은 올림(⌈ ⌉), 오른쪽 끝은 내림(⌊ ⌋)해서 그 안의 정수만 남깁니다. −4.2223 ~ −1.5953 안의 정수는 −4, −3, −2입니다.</p>
+
+    <h3>맞닿는 위치도 금지한다: 여유 10⁻⁶</h3>
+    <p>여기에 작은 장치가 하나 있습니다. 올림·내림을 하기 전에 범위의 양 끝을 10⁻⁶(0.000001)만큼 바깥으로 넓힙니다. 그 결과 <strong>경계 위에 정확히 놓인 정수 점도 금지에 포함됩니다.</strong> 경계 위의 상대 위치는 두 다각형이 변이나 꼭짓점으로 맞닿기만 하는 위치입니다.</p>
+    <p>표의 마지막 줄이 그 예입니다. dy = 0에서 오른쪽 끝이 정확히 0이고, 그래서 dx = 0이 구간에 들어갑니다. 2부 그림의 (0, 0)이 이것입니다. 규칙으로는 허용되는 배치이지만 충돌 격자에서는 금지입니다.</p>
+    <p>왜 손해를 보면서 이렇게 할까요. 컴퓨터는 소수를 유한한 자릿수로 저장하므로 계산할 때마다 아주 작은 오차가 생깁니다. 예를 들어 위 다각형에서 수학적으로는 (0, 0)이어야 할 꼭짓점이 계산 결과로는 (0, 0.00000000000000089)로 나옵니다. 이런 오차 때문에 실제로는 아주 조금 겹치는 위치를 "안 겹침"으로 잘못 판정하면, 그 해는 대회의 검사에서 무효가 되고 그 문제의 점수는 −1입니다(1장). 반대로 맞닿는 위치 몇 개를 못 쓰는 손해는 작습니다. 그래서 애매한 쪽은 모두 금지로 돌립니다. 저자의 보고서는 이를 "작은 여유가 수치 오차로 인한 충돌 누락을 막는다"고 한 문장으로 적었습니다.</p>
+    <p class="src">손해의 크기를 재 보았습니다. 학습 데이터에서 무작위로 고른 방향 쌍 168개의 상대 위치 147,507개에 대해 충돌 격자와 2부의 직접 판정을 비교하면, 격자가 금지한 위치는 71,029개, 실제로 넓이가 겹친 위치는 70,842개였습니다. 겹치는데 격자가 놓친 위치는 0개였고, 차이 187개(금지의 0.26%)는 모두 맞닿기만 하는 위치였습니다.</p>
+  </section>
+
+  <section>
+    <h2>4단계: 같은 행의 구간을 합친다</h2>
+    <p>층 하나가 삼각형 여러 개로 나뉘므로, 같은 dy에 구간이 여러 개 쌓입니다. 이것들은 대부분 서로 겹칩니다. 블록 2의 층 0(조각 1개)과 블록 4의 층 0(조각 7개)은 조각 쌍이 1 × 7 = 7개이고, dy = −8인 행에는 그중 다섯 쌍이 구간을 냅니다.</p>
+<pre>dy = −8 에 쌓인 구간:  −4 ~ −2,  −4 ~ −3,  −4 ~ −3,  −4 ~ −3,  −7 ~ −3
+합친 결과:            −7 ~ −2</pre>
+    <p>합치는 방법은 수직선 위의 구간 합치기입니다. 구간들을 왼쪽 끝이 작은 순으로 정렬한 뒤 앞에서부터 보면서, 앞 구간과 겹치거나 바로 붙어 있으면 하나로 잇습니다. 정수 구간이므로 −7 ~ −4와 −3 ~ −2는 겹치지 않아도 사이에 빈 정수가 없어 −7 ~ −2로 합쳐집니다.</p>
+    <p>이 층 쌍 전체로는 조각 쌍 7개가 낸 구간 69개가 11개로 줄어듭니다. 행마다 구간 하나입니다. 그 11개가 덮는 정수 점은 162개이고, 2부의 직접 계산 161개에 맞닿는 위치 (0, 0) 하나를 더한 것과 정확히 같습니다. 윤곽을 구해 자르는 방법이 하나씩 판정하는 방법과 같은 답을 낸다는 확인입니다.</p>
+  </section>
+
+  <div class="part">4부 · 크레인 규칙을 담는다</div>
+
+  <section>
+    <h2>저장하는 것은 "가린다" 관계 하나뿐이다</h2>
+    <p>지금까지는 층 한 쌍이었습니다. 블록 전체로 넘어가면 1장의 두 규칙을 다뤄야 합니다. 규칙 A는 같은 번호 층끼리 겹치면 안 된다는 것이고, 규칙 B는 움직이는 블록 M의 층 k가 다른 블록 X의 층 j(j ≥ k)와 겹치면 M이 오르내릴 수 없다는 것이었습니다. 뒤의 관계를 "X가 M을 가린다"고 불렀습니다.</p>
+    <p>두 규칙용 표를 따로 둘 것 같지만, 원래 프로그램에는 표가 한 종류뿐입니다.</p>
+    <div class="note">
+      <p><strong>「X가 M을 가리는 위치」의 표</strong></p>
+      <p>M의 층 k와 X의 층 j가 겹치는 상대 위치를, j ≥ k인 모든 (k, j)에 대해 3부의 방법으로 구해 합친 것입니다. 이 표에 들어 있는 상대 위치에 두 블록을 놓으면 X가 M을 가립니다.</p>
+      <p>블록 두 개(와 각각의 방향)마다 이런 표가 둘 있습니다. 「X가 M을 가리는 위치」와, 역할을 바꾼 「M이 X를 가리는 위치」입니다.</p>
+    </div>
+    <p>규칙 A는 여기에 이미 들어 있습니다. 같은 번호 층끼리(j = k)의 겹침은 j ≥ k도 만족하고 k ≥ j도 만족하므로 두 표 모두에 들어가기 때문입니다. 그래서 어떤 상대 위치에 대해 두 표를 모두 찾아보면 1장의 세 관계가 전부 나옵니다. 기존 블록 옆에 새 블록을 놓는 상황으로 적으면 이렇습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>기존 블록이 새 블록을 가림</th><th>새 블록이 기존 블록을 가림</th><th>뜻</th><th>두 블록이 머무는 기간</th></tr></thead>
+      <tbody>
+        <tr><td>아니오</td><td>아니오</td><td>서로 가리지 않음</td><td>제약 없음</td></tr>
+        <tr><td>예</td><td>아니오</td><td>기존 블록만 가림</td><td>기존 블록의 기간이 새 블록의 기간 안에 들어가야 함</td></tr>
+        <tr><td>아니오</td><td>예</td><td>새 블록만 가림</td><td>새 블록의 기간이 기존 블록의 기간 안에 들어가야 함</td></tr>
+        <tr><td>예</td><td>예</td><td>같은 층끼리 겹침(규칙 A)이거나 서로 가림</td><td>겹칠 수 없음</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>마지막 줄에서 규칙 A 위반과 "서로 가림"은 구별되지 않습니다. 구별할 필요가 없습니다. 어느 쪽이든 두 블록은 같은 시간대에 함께 있을 수 없기 때문입니다. 이 "예/아니오" 두 개를 입고 시각의 조건으로 바꾸는 일은 5장에서 다룹니다.</p>
+  </section>
+
+  <section>
+    <h2>블록 2와 블록 4의 두 표</h2>
+    <p>블록 2(층 0, 1)와 블록 4(층 0)에 적용하면 층 쌍은 둘뿐입니다. 각 층 쌍의 금지 영역이 어느 표에 들어가는지 봅니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>층 쌍</th><th>「블록 4가 블록 2를 가리는 위치」에</th><th>「블록 2가 블록 4를 가리는 위치」에</th></tr></thead>
+      <tbody>
+        <tr><td>블록 2 층 0 · 블록 4 층 0</td><td>들어감 (블록 4의 층 0 ≥ 블록 2의 층 0)</td><td>들어감 (블록 2의 층 0 ≥ 블록 4의 층 0)</td></tr>
+        <tr><td>블록 2 층 1 · 블록 4 층 0</td><td>안 들어감 (블록 4의 층 0은 블록 2의 층 1보다 낮다)</td><td>들어감 (블록 2의 층 1 ≥ 블록 4의 층 0)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>블록 2의 층 1은 블록 4의 층 0보다 위에 있습니다. 그래서 블록 2가 오르내릴 때 블록 4는 그 길에 없고, 반대로 블록 4가 오르내릴 때는 블록 2의 층 1이 길을 막습니다. 두 표가 달라지는 이유입니다.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 338" role="img" aria-label="블록 2를 원점에 두고 블록 4의 기준점 위치를 정수 격자로 표시한 두 그림. 왼쪽은 블록 4가 블록 2를 가리는 위치 162개, 오른쪽은 블록 2가 블록 4를 가리는 위치 335개. 오른쪽에만 있는 173개는 블록 4가 블록 2의 돌출부 아래에 들어가는 위치이다.">
+        <text x="20" y="18" font-size="12" fill="currentColor" font-weight="700">블록 4가 블록 2를 가리는 위치: 162개</text>
+        <text x="20" y="34" font-size="11" class="t-muted">crane_pair(moving = 블록 2, fixed = 블록 4)</text>
+        <polygon points="331.4,194.1 316.9,86.7 221.6,88.4 133.8,88.6 133.3,97.5 311.1,191.3" class="f-hull" stroke-width="1.2" fill-opacity=".55"/>
+        <polygon points="221.6,88.4 133.8,88.6 133.3,97.5 231.1,149.1" class="f-steel" stroke-width="1.2" fill-opacity=".8"/>
+        <line x1="20" y1="232.4" x2="346.8" y2="232.4" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="222.8" x2="346.8" y2="222.8" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="213.2" x2="346.8" y2="213.2" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="203.6" x2="346.8" y2="203.6" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="194" x2="346.8" y2="194" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="184.4" x2="346.8" y2="184.4" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="174.8" x2="346.8" y2="174.8" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="165.2" x2="346.8" y2="165.2" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="155.6" x2="346.8" y2="155.6" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="146" x2="346.8" y2="146" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="136.4" x2="346.8" y2="136.4" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="126.8" x2="346.8" y2="126.8" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="117.2" x2="346.8" y2="117.2" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="107.6" x2="346.8" y2="107.6" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="98" x2="346.8" y2="98" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="88.4" x2="346.8" y2="88.4" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="78.8" x2="346.8" y2="78.8" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="69.2" x2="346.8" y2="69.2" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="59.6" x2="346.8" y2="59.6" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="20" y1="50" x2="346.8" y2="50" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="154.4" y1="165.2" x2="202.8" y2="165.2" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="135.2" y1="155.6" x2="212.4" y2="155.6" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="116" y1="146" x2="222" y2="146" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="96.8" y1="136.4" x2="222" y2="136.4" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="87.2" y1="126.8" x2="222" y2="126.8" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="68" y1="117.2" x2="222" y2="117.2" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="58.4" y1="107.6" x2="222" y2="107.6" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="39.2" y1="98" x2="222" y2="98" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="39.2" y1="88.4" x2="222" y2="88.4" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="39.2" y1="78.8" x2="183.6" y2="78.8" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="48.8" y1="69.2" x2="183.6" y2="69.2" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <text x="374" y="18" font-size="12" fill="currentColor" font-weight="700">블록 2가 블록 4를 가리는 위치: 335개</text>
+        <text x="374" y="34" font-size="11" class="t-muted">crane_pair(moving = 블록 4, fixed = 블록 2)</text>
+        <polygon points="685.4,194.1 670.9,86.7 575.6,88.4 487.8,88.6 487.3,97.5 665.1,191.3" class="f-hull" stroke-width="1.2" fill-opacity=".55"/>
+        <polygon points="575.6,88.4 487.8,88.6 487.3,97.5 585.1,149.1" class="f-steel" stroke-width="1.2" fill-opacity=".8"/>
+        <line x1="374" y1="232.4" x2="700.8" y2="232.4" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="222.8" x2="700.8" y2="222.8" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="213.2" x2="700.8" y2="213.2" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="203.6" x2="700.8" y2="203.6" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="194" x2="700.8" y2="194" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="184.4" x2="700.8" y2="184.4" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="174.8" x2="700.8" y2="174.8" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="165.2" x2="700.8" y2="165.2" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="155.6" x2="700.8" y2="155.6" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="146" x2="700.8" y2="146" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="136.4" x2="700.8" y2="136.4" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="126.8" x2="700.8" y2="126.8" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="117.2" x2="700.8" y2="117.2" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="107.6" x2="700.8" y2="107.6" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="98" x2="700.8" y2="98" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="88.4" x2="700.8" y2="88.4" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="78.8" x2="700.8" y2="78.8" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="69.2" x2="700.8" y2="69.2" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="59.6" x2="700.8" y2="59.6" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="374" y1="50" x2="700.8" y2="50" class="s-muted" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="402.8" y1="69.2" x2="537.6" y2="69.2" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="546.8" y1="69.2" x2="633.6" y2="69.2" class="s-ok" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="393.2" y1="78.8" x2="537.6" y2="78.8" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="546.8" y1="78.8" x2="633.6" y2="78.8" class="s-ok" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="393.2" y1="88.4" x2="576" y2="88.4" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="585.2" y1="88.4" x2="662.4" y2="88.4" class="s-ok" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="393.2" y1="98" x2="576" y2="98" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="585.2" y1="98" x2="672" y2="98" class="s-ok" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="412.4" y1="107.6" x2="576" y2="107.6" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="585.2" y1="107.6" x2="672" y2="107.6" class="s-ok" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="422" y1="117.2" x2="576" y2="117.2" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="585.2" y1="117.2" x2="672" y2="117.2" class="s-ok" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="441.2" y1="126.8" x2="576" y2="126.8" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="585.2" y1="126.8" x2="672" y2="126.8" class="s-ok" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="450.8" y1="136.4" x2="576" y2="136.4" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="585.2" y1="136.4" x2="672" y2="136.4" class="s-ok" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="470" y1="146" x2="576" y2="146" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="585.2" y1="146" x2="672" y2="146" class="s-ok" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="489.2" y1="155.6" x2="566.4" y2="155.6" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="575.6" y1="155.6" x2="672" y2="155.6" class="s-ok" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="508.4" y1="165.2" x2="556.8" y2="165.2" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="566" y1="165.2" x2="681.6" y2="165.2" class="s-ok" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="527.6" y1="174.8" x2="681.6" y2="174.8" class="s-ok" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="546.8" y1="184.4" x2="681.6" y2="184.4" class="s-ok" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="566" y1="194" x2="681.6" y2="194" class="s-ok" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="585.2" y1="203.6" x2="662.4" y2="203.6" class="s-ok" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <line x1="604.4" y1="213.2" x2="652.8" y2="213.2" class="s-ok" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <polygon points="585.2,136.4 615.8,138 617,161.3 647.3,162.3 679.2,162.6 681.4,136.5 648.6,136.4 653.1,113.8 621.4,113" class="s-line" stroke-width="1.6" stroke-dasharray="4 3"/>
+        <circle cx="585.2" cy="136.4" r="4.5" class="s-line" stroke-width="1.6"/>
+        <circle cx="221.6" cy="88.4" r="2.6" fill="currentColor"/>
+        <text x="29.6" y="247.4" font-size="10" class="t-muted" text-anchor="middle">−20</text>
+        <text x="125.6" y="247.4" font-size="10" class="t-muted" text-anchor="middle">−10</text>
+        <text x="221.6" y="247.4" font-size="10" class="t-muted" text-anchor="middle">0</text>
+        <text x="317.6" y="247.4" font-size="10" class="t-muted" text-anchor="middle">10</text>
+        <text x="13" y="235.9" font-size="10" class="t-muted" text-anchor="end">−15</text>
+        <text x="13" y="187.9" font-size="10" class="t-muted" text-anchor="end">−10</text>
+        <text x="13" y="139.9" font-size="10" class="t-muted" text-anchor="end">−5</text>
+        <text x="13" y="91.9" font-size="10" class="t-muted" text-anchor="end">0</text>
+        <circle cx="575.6" cy="88.4" r="2.6" fill="currentColor"/>
+        <text x="383.6" y="247.4" font-size="10" class="t-muted" text-anchor="middle">−20</text>
+        <text x="479.6" y="247.4" font-size="10" class="t-muted" text-anchor="middle">−10</text>
+        <text x="575.6" y="247.4" font-size="10" class="t-muted" text-anchor="middle">0</text>
+        <text x="671.6" y="247.4" font-size="10" class="t-muted" text-anchor="middle">10</text>
+        <text x="367" y="235.9" font-size="10" class="t-muted" text-anchor="end">−15</text>
+        <text x="367" y="187.9" font-size="10" class="t-muted" text-anchor="end">−10</text>
+        <text x="367" y="139.9" font-size="10" class="t-muted" text-anchor="end">−5</text>
+        <text x="367" y="91.9" font-size="10" class="t-muted" text-anchor="end">0</text>
+        <line x1="24" y1="286" x2="24.4" y2="286" class="s-crane" stroke-width="5.4" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <text x="34" y="290" font-size="11" fill="currentColor">두 방향 모두에 있는 위치 162개: 함께 있을 수 없음</text>
+        <line x1="378" y1="286" x2="378.4" y2="286" class="s-ok" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="0 9.6"/>
+        <text x="388" y="290" font-size="11" fill="currentColor">오른쪽에만 있는 위치 173개: 순서를 지키면 함께 있을 수 있음</text>
+        <text x="20" y="310" font-size="11" class="t-muted">가로 dx, 세로 dy = 블록 4의 기준점 − 블록 2의 기준점. 파랑 = 블록 2의 층 0, 녹색 면 = 층 1. 좌표 1 = 9.6px</text>
+        <text x="20" y="328" font-size="11" class="t-muted">오른쪽의 점선 = 블록 4를 상대 위치 (1, −5)에 놓은 모습. 층 0끼리는 떨어져 있고, 블록 2의 층 1 아래에 걸쳐 있다.</text>
+        </svg>
+      </div>
+      <figcaption>두 그림 모두 블록 2를 원점에 두고, 블록 4의 기준점이 올 수 있는 정수 위치를 표시했습니다(가로 dx, 세로 dy = 블록 4의 기준점 − 블록 2의 기준점). 왼쪽이 「블록 4가 블록 2를 가리는 위치」 162개, 오른쪽이 「블록 2가 블록 4를 가리는 위치」 335개입니다. 큰 점(주황)은 두 표 모두에 있는 위치, 작은 점(녹색)은 오른쪽 표에만 있는 위치입니다. 그림 속 <span class="mono">crane_pair(…)</span>는 원래 프로그램에서 이 표를 부르는 이름입니다.</figcaption>
+    </figure>
+    <p>큰 점 162개에서는 층 0끼리 겹치므로 두 블록이 함께 있을 수 없습니다. 오른쪽에만 있는 작은 점 173개는 블록 4가 블록 2의 돌출부 아래에 걸치는 위치입니다. 여기서는 순서만 지키면 함께 있을 수 있습니다. 블록 4가 먼저 들어오고, 블록 2가 먼저 나가야 합니다. 1장의 "돌출부 아래에 낮은 블록" 그림이 실제 블록에서는 이 173개의 위치입니다.</p>
+    <p class="src">학습 데이터에서 무작위로 고른 방향 쌍 1,680개로 보면, 두 표가 완전히 같은 쌍이 65%, 위 예처럼 한쪽이 다른 쪽을 포함하는 쌍이 34%, 양쪽에 각자 고유한 위치가 있는 쌍이 1% 미만이었습니다. 두 표가 같다는 것은 그 두 블록이 어떤 위치에서도 위아래로 포개어 놓일 수 없다는 뜻입니다.</p>
+  </section>
+
+  <section>
+    <h2>표의 실제 모습과 읽는 법</h2>
+    <p>충돌 격자 하나에 실제로 저장되는 것은 "행(dy)마다 금지 dx 구간의 목록"입니다. 위 그림 왼쪽의 표, 곧 「블록 4가 블록 2를 가리는 위치」에 들어 있는 값 전부입니다.</p>
+<pre>dy = −8 :  −7 ~ −2          dy = −2 :  −17 ~ 0
+dy = −7 :  −9 ~ −1          dy = −1 :  −19 ~ 0
+dy = −6 :  −11 ~ 0          dy =  0 :  −19 ~ 0
+dy = −5 :  −13 ~ 0          dy =  1 :  −19 ~ −4
+dy = −4 :  −14 ~ 0          dy =  2 :  −18 ~ −4
+dy = −3 :  −16 ~ 0          그 밖의 dy : 금지 구간 없음</pre>
+    <p>금지 위치 162개가 구간 11개로 적혀 있습니다. 읽는 것은 "dy에 해당하는 줄을 찾는다"가 전부이고 계산이 없습니다. 학습 데이터에서 표본으로 뽑은 격자 3,360개를 보면 중앙값 크기의 격자는 28행에 구간 24개, 금지 위치 402개입니다. 구간이 둘 이상인 행은 전체의 1.3%뿐입니다. 블록이 오목해도 서로 부딪히는 영역은 대체로 가로로 한 덩어리라는 뜻입니다.</p>
+
+    <h3>숫자로 따라가 보기</h3>
+    <p>베이 0에 블록 2가 기준점 (40, 15)에 놓여 있고, 새 블록 4를 y = 10인 행에 넣으려 합니다. x를 얼마로 해야 할까요? 블록 4의 기준점을 (x, 10)에 두면 상대 위치는 (x − 40, 10 − 15) = (x − 40, −5)입니다. 두 표에서 dy = −5인 줄을 읽습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>표</th><th>dy = −5인 줄</th><th>x로 바꾸면 (x = dx + 40)</th><th>뜻</th></tr></thead>
+      <tbody>
+        <tr><td>「블록 4가 블록 2를 가리는 위치」</td><td>dx가 −13 ~ 0</td><td>x가 27 ~ 40</td><td>이 범위에서 블록 4가 블록 2를 가림</td></tr>
+        <tr><td>「블록 2가 블록 4를 가리는 위치」</td><td>dx가 −13 ~ 10</td><td>x가 27 ~ 50</td><td>이 범위에서 블록 2가 블록 4를 가림</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>두 줄을 합쳐 읽으면 이 행의 x는 세 구역으로 나뉩니다.</p>
+    <ul class="plain">
+      <li><strong>x = 27 ~ 40:</strong> 두 표 모두에 해당합니다. 블록 2와 함께 있을 수 없습니다.</li>
+      <li><strong>x = 41 ~ 50:</strong> 블록 2만 블록 4를 가립니다. 블록 4가 블록 2보다 먼저 들어오고 나중에 나가는 일정이면 가능합니다.</li>
+      <li><strong>그 밖의 x:</strong> 블록 2와 무관합니다.</li>
+    </ul>
+    <p>다각형 계산 없이 표 두 줄을 읽어서 얻은 결론입니다. 5장에서는 이 구간들의 끝점(27, 41, 51)을 따라 x를 왼쪽에서 오른쪽으로 훑으며 가능한 입고 시각을 구합니다.</p>
+  </section>
+
+  <section>
+    <h2>필요할 때 만들고, 한번 만들면 계속 쓴다</h2>
+    <p>충돌 격자는 (블록, 방향) 한 쌍마다 하나씩 필요합니다. 조합 수가 많습니다. <span class="mono">prelim_prob_1</span>은 블록 100개에 방향이 대부분 8개라, 순서를 구별한 블록 쌍이 100 × 99 = 9,900개이고 방향까지 따지면 583,824개입니다. 블록 300개짜리 문제는 약 1,292만 개입니다. 전부 미리 만들면 시간과 메모리가 많이 들고, 대부분은 한 번도 쓰이지 않습니다. 같은 베이에서 머무는 기간이 겹칠 수 있는 블록끼리, 그리고 탐색이 실제로 시도한 방향끼리만 필요하기 때문입니다.</p>
+    <p>그래서 시작할 때는 빈 칸만 만들어 둡니다. 어떤 쌍의 격자가 처음 필요해지는 순간에 만들어 그 칸에 넣어 두고, 다음부터는 꺼내 쓰기만 합니다. 한 번도 안 쓰이는 쌍의 격자는 끝까지 만들어지지 않습니다. 한 쌍의 격자를 만들 때는 3부의 계산을 층 쌍마다 한 번씩 하고, 그 결과를 두 표(「X가 M을 가림」과 「M이 X를 가림」)에 함께 나눠 넣으므로 반대 방향 표도 같이 채워집니다.</p>
+    <p>시작할 때 미리 해 두는 것은 가벼운 일들뿐입니다. 모든 블록·방향의 삼각형 분할(3부의 1단계)과 바운딩 박스, 그리고 다음 절의 베이 경계 범위입니다.</p>
+  </section>
+
+  <div class="part">5부 · 베이 경계와 검증</div>
+
+  <section>
+    <h2>베이 경계: 방향마다 놓을 수 있는 좌표 범위</h2>
+    <p>블록끼리의 충돌과 별개로, 블록은 베이 직사각형 안에 들어가야 합니다. 이것은 블록의 모든 층을 감싸는 바운딩 박스만으로 판정됩니다. 기준점을 (x, y)에 놓으면 블록은 가로로 x + (박스의 왼쪽 끝)부터 x + (박스의 오른쪽 끝)까지를 차지하므로, 이 범위가 0과 베이 폭 사이에 들어오는 정수 x의 범위를 구하면 됩니다. y도 같습니다.</p>
+    <p>블록 2의 방향 0은 바운딩 박스가 x 방향으로 −9.2006 ~ 11.4359, y 방향으로 −11.0111 ~ 0.1722입니다. 기준점이 박스의 위쪽 가까이에 있는 블록입니다. 베이 0(165 × 25)에서 계산하면</p>
+    <ul class="plain">
+      <li>x − 9.2006 ≥ 0 이어야 하므로 x ≥ 9.2006, 정수로는 x ≥ ⌈9.2006⌉ = 10</li>
+      <li>x + 11.4359 ≤ 165 이어야 하므로 x ≤ 153.5641, 정수로는 x ≤ ⌊153.5641⌋ = 153</li>
+      <li>같은 방법으로 y는 ⌈11.0111⌉ = 12부터 ⌊25 − 0.1722⌋ = 24까지</li>
+    </ul>
+    <p>방향을 바꾸면 범위가 크게 달라집니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>블록 2의 방향</th><th>바운딩 박스 (가로 × 세로)</th><th>베이 0 (165 × 25)</th><th>베이 2 (68 × 24)</th></tr></thead>
+      <tbody>
+        <tr><td>0</td><td>20.64 × 11.18</td><td>x 10~153, y 12~24 (13개 행)</td><td>x 10~56, y 12~23 (12개 행)</td></tr>
+        <tr><td>1</td><td>22.32 × 14.31</td><td>x 7~149, y 8~17 (10개 행)</td><td>x 7~52, y 8~16 (9개 행)</td></tr>
+        <tr><td>2</td><td>11.18 × 20.64</td><td>x 1~153, y 10~13 (4개 행)</td><td>x 1~56, y 10~12 (3개 행)</td></tr>
+        <tr><td>3</td><td>14.31 × 22.32</td><td>x 8~157, y 7~9 (3개 행)</td><td>x 8~60, y 7~8 (2개 행)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>세로로 긴 방향 3은 높이 25인 베이에 y 좌표 세 가지로만 들어갑니다. 베이가 가로로 길기 때문에 방향 선택이 y의 자유를 사실상 결정합니다. 여기서 <strong>행</strong>이라는 말을 정해 둡니다. 기준점의 y 좌표가 같은 자리들을 한 행이라고 부릅니다. "13개 행"은 y로 고를 수 있는 값이 13가지라는 뜻입니다. 5장의 탐욕 삽입은 이 범위를 읽어 어느 행들을 살펴볼지 정합니다.</p>
+    <p class="src">학습 데이터 전체에서 (베이, 블록, 방향) 조합 80,852개 중 8.0%가 그 방향으로는 들어가지 않습니다. 어떤 방향으로도 들어갈 수 없는 (블록, 베이) 쌍은 9,850쌍 중 90쌍입니다.</p>
+  </section>
+
+  <section>
+    <h2>그 밖에 미리 계산해 두는 것</h2>
+    <p>충돌 격자 말고도, 입력만으로 정해지는 값 몇 가지를 시작할 때 계산해 둡니다. 뒤의 장에서 쓰이는 것만 적습니다. "실제 값"은 <span class="mono">prelim_prob_1</span>의 블록 2입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>미리 계산하는 것</th><th>실제 값</th><th>쓰는 곳</th></tr></thead>
+      <tbody>
+        <tr><td>블록별로, 선호 점수가 높은 순의 베이 목록</td><td>[2, 1, 0]</td><td>탐욕 삽입이 베이를 살피는 순서 (5장)</td></tr>
+        <tr><td>블록·베이별 선호 벌점 (가장 높은 선호 − 그 베이의 선호)</td><td>[43, 7, 0]</td><td>Z₃ 계산</td></tr>
+        <tr><td>블록별로, 바운딩 박스 넓이가 작은 순의 방향 목록</td><td>[0, 2, 4, 6, 1, 3, 5, 7]</td><td>탐욕 삽입이 방향을 살피는 순서 (5장)</td></tr>
+        <tr><td>블록의 그림자(모든 층의 합집합) 넓이</td><td>123.47</td><td>부피 = 넓이 × P (투입 순서, 순서 점수)</td></tr>
+        <tr><td>방향을 바꿀 때 기준점을 세로로 얼마나 옮겨야 블록이 같은 자리에 오는가</td><td>방향 0 → 방향 4(180° 회전): −11</td><td>방향을 바꾸는 이웃 (7장)</td></tr>
+        <tr><td>베이별 uⱼ (평균 베이 넓이 ÷ 그 베이의 넓이)</td><td>[0.791, 0.809, 1.999]</td><td>Z₂ 계산 (1장)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>이 모든 사전계산 결과의 묶음은 워커 4개가 함께 읽습니다. 탐색 중에는 읽기만 하므로 서로 방해하지 않습니다.</p>
+  </section>
+
+  <section>
+    <h2>공식 검증기와의 관계</h2>
+    <p>지금까지 본 판정은 솔버 안에서만 쓰는 자체 방식입니다. 해가 유효한지를 최종적으로 정하는 것은 대회의 공식 검증기이고, 둘은 서로 다른 프로그램입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th></th><th>솔버 (이 장의 충돌 격자)</th><th>검증 (공식 검증기와, 제출물 안의 자체 검사)</th></tr></thead>
+      <tbody>
+        <tr><td>겹침 판정</td><td>미리 만든 표에서 (dx, dy)를 찾아봄</td><td>두 다각형이 겹친 부분의 넓이를 직접 계산해 0보다 큰지 확인</td></tr>
+        <tr><td>맞닿는 배치</td><td>금지 (여유 10⁻⁶)</td><td>겹친 넓이가 0이면 허용</td></tr>
+        <tr><td>베이 경계</td><td>바운딩 박스가 베이 안. 변에 정확히 닿는 것은 허용</td><td>같음</td></tr>
+        <tr><td>언제</td><td>탐색 중 매번</td><td>탐색이 끝난 뒤, 후보 해마다 한 번</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <ul class="plain">
+      <li><strong>탐색 중의 유효성은 전적으로 충돌 격자가 책임집니다.</strong> 솔버는 탐색 중에 다각형끼리 겹치는 넓이를 계산하지 않습니다.</li>
+      <li><strong>그래서 마지막에 다른 방법으로 한 번 더 확인합니다.</strong> 솔버가 내놓은 후보 해들을, 공식 검증기와 같은 기준으로 다시 만든 검사 함수에 넣어 통과한 것을 제출합니다(6장). 같은 답을 서로 다른 두 방법으로 확인하는 것은 실수를 잡는 좋은 습관입니다.</li>
+      <li><strong>솔버 쪽이 항상 더 엄격합니다.</strong> 격자는 맞닿는 위치까지 금지하므로, 격자가 허용한 배치는 두 다각형 사이에 실제로 틈이 있습니다. 검증기가 계산 오차로 "아주 조금 겹친다"고 판정할 여지를 없애는 방향입니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>더 알고 싶다면</h2>
+    <ul class="plain">
+      <li><strong>"바깥으로 볼록하게 나온 꼭짓점"의 판정.</strong> 꼭짓점 p, q, r을 차례로 지날 때 왼쪽으로 꺾이는지 오른쪽으로 꺾이는지는 (q − p)와 (r − p) 두 벡터의 성분으로 (qₓ − pₓ)(r_y − p_y) − (q_y − p_y)(rₓ − pₓ)를 계산해 부호를 보면 알 수 있습니다. 양수이면 왼쪽(시계 반대 방향)으로 꺾인 것입니다. 대학 수학에서 외적이라고 부르는 계산이고, 귀 자르기와 변을 각도 순으로 합치는 일에 모두 이것이 쓰입니다.</li>
+      <li><strong>2부의 "직접 판정"은 어떻게 했나.</strong> 두 다각형을 삼각형으로 나눈 뒤, 삼각형 한 쌍마다 "둘 사이를 가르는 직선이 있는가"를 변의 방향마다 확인했습니다(분리축 검사라는 표준 방법). 충돌 격자를 만드는 방법과 다른 방법이어서 서로 검산이 됩니다.</li>
+      <li><strong>표의 저장 방식.</strong> 행마다 구간 수가 다르므로, 모든 행의 구간을 한 줄로 이어 붙인 배열 하나와 "각 행이 그 배열의 몇 번째에서 시작하는가"를 적은 배열 하나로 저장합니다. 반대 방향의 표는 부호를 뒤집은 좌표(기준이 되는 블록이 반대)로 저장되어 있어, 원래 코드에서는 읽을 때 dy와 dx의 부호를 바꿔 읽습니다. 본문에서는 두 표를 같은 좌표로 맞춰 설명했습니다.</li>
+      <li><strong>워커 둘이 같은 빈 칸을 동시에 채우려 하면.</strong> 둘 다 격자를 계산할 수 있습니다. 칸에 넣는 동작은 "칸이 아직 비어 있으면 내 것을 넣는다"를 중간에 끼어들 수 없는 한 동작으로 처리하므로 한쪽만 성공하고, 늦은 쪽은 자기가 만든 것을 버리고 먼저 들어간 것을 씁니다. 두 결과는 내용이 같으므로 문제가 없습니다. 한번 채워진 칸은 끝까지 바뀌지 않아서, 읽는 워커들은 서로 기다릴 필요가 없습니다.</li>
+      <li><strong>삼각형 분할이 실패하면.</strong> 모든 정수 상대 위치를 하나씩 직접 판정하는 느린 대체 방법으로 넘어가게 되어 있습니다. 학습 데이터에서는 한 번도 쓰이지 않는 것으로 보입니다.</li>
+    </ul>
+    <p class="src">삼각형 분할 <span class="mono">collision.rs:436, 484</span>, 민코프스키 차 <span class="mono">:834</span>, 가로줄로 자르기와 여유 <span class="mono">:916</span>, 구간 합치기 <span class="mono">:300</span>, 두 표를 함께 만들기 <span class="mono">:696</span>, 처음 쓸 때 만들기 <span class="mono">:140, 201</span>, 베이 경계 범위 <span class="mono">:668</span>, 그 밖의 사전계산 <span class="mono">precompute.rs:13</span>. 공식 검증기는 <span class="mono">tools/alg_tester/utils.py</span>, 제출물 안의 검사 함수는 <span class="mono">tools/myalgorithm.py</span>에 있습니다. "검증기의 계산 오차까지 대비한다"는 부분은 코드 구조에서 해설자가 읽어 낸 해석입니다.</p>
+  </section>
+
+  <section>
+    <h2>이해 확인</h2>
+    <details>
+      <summary>1부의 직사각형 예에서 B를 가로 0.5, 세로 0.5인 정사각형으로 바꾸면, 겹치는 정수 상대 위치는 몇 개인가요?</summary>
+      <p>겹치는 조건은 −0.5 &lt; dx &lt; 2.5, −0.5 &lt; dy &lt; 1.5입니다. 정수 dx는 0, 1, 2의 세 가지, dy는 0, 1의 두 가지이므로 6개입니다. 표로 적으면 dy = 0과 dy = 1 두 줄에 각각 "dx가 0 ~ 2"입니다.</p>
+    </details>
+    <details>
+      <summary>꼭짓점이 12개인 오목 다각형을 귀 자르기로 나누면 삼각형은 몇 개가 되나요?</summary>
+      <p>12 − 2 = 10개입니다. 귀를 하나 자를 때마다 꼭짓점이 하나 줄고 삼각형이 하나 생기며, 꼭짓점 3개가 남았을 때 마지막 삼각형이 됩니다.</p>
+    </details>
+    <details>
+      <summary>충돌 격자에서 "금지"인 상대 위치는 규칙상 반드시 겹치는 위치인가요?</summary>
+      <p>아니요. 변이나 꼭짓점이 정확히 맞닿기만 하는 위치도 금지에 들어갑니다. 구간의 양 끝을 10⁻⁶만큼 넓혀서 정수로 맞추기 때문입니다. 이 장의 예에서는 상대 위치 (0, 0)이 그렇습니다. 표본에서는 금지 위치의 0.26%가 이런 위치였습니다. 반대 방향의 잘못, 즉 실제로 겹치는데 허용하는 경우는 표본에서 0건이었습니다.</p>
+    </details>
+    <details>
+      <summary>「블록 2가 블록 4를 가리는 위치」(335개)가 「블록 4가 블록 2를 가리는 위치」(162개)보다 많은 이유는 무엇인가요?</summary>
+      <p>블록 2에만 층 1이 있기 때문입니다. 앞의 표는 블록 4의 층 0이 블록 2의 층 0 또는 층 1과 겹치는 위치를 모두 담습니다. 뒤의 표는 블록 4에 층 0뿐이라 블록 2의 층 0과 겹치는 위치만 담습니다. 차이 173개는 블록 4가 블록 2의 돌출부 아래에 놓이는 위치입니다.</p>
+    </details>
+    <details>
+      <summary>본문의 예(블록 2가 (40, 15)에 있음)에서 블록 4를 y = 15인 행에 놓으려 합니다. 「블록 4가 블록 2를 가리는 위치」의 표에서 어느 줄을 읽어야 하고, 금지되는 x는 어디인가요?</summary>
+      <p>상대 위치의 dy는 15 − 15 = 0이므로 dy = 0인 줄을 읽습니다. dx가 −19 ~ 0이면 금지이고, x = dx + 40이므로 x = 21 ~ 40입니다.</p>
+    </details>
+    <details>
+      <summary>바운딩 박스가 x 방향으로 −3.2 ~ 6.7인 방향을 폭 50인 베이에 놓을 때, 기준점의 x로 가능한 정수 범위는 얼마인가요?</summary>
+      <p>x − 3.2 ≥ 0에서 x ≥ 3.2이므로 x ≥ 4, x + 6.7 ≤ 50에서 x ≤ 43.3이므로 x ≤ 43입니다. 4부터 43까지 40가지입니다.</p>
+    </details>
+  </section>
+  <div class="pager"><a href="#ch3">← 이전: 3장 추상 사전최적화</a><a href="#ch5">다음: 5장 탐욕 삽입 →</a></div>
+</article>

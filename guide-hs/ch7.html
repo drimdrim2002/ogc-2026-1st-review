@@ -1,0 +1,499 @@
+<article class="chapter" id="ch7">
+  <header>
+    <div class="kicker">7 / 8</div>
+    <h1>SA와 이웃: 일정을 작게 자주, 가끔 크게 고친다</h1>
+  </header>
+
+  <section>
+    <p class="lead">호라이즌마다 새 블록을 끼워 넣고 나면, 남은 시간은 전부 <strong>담금질 기법(SA)</strong>에 씁니다. 지금의 일정을 조금 바꾼 <strong>후보 일정</strong>을 만들고, 점수를 비교해 받아들일지 정하는 일을 마감까지 되풀이합니다. 이 장은 2단계 SA가 온도와 수락 임계값을 어떻게 정하고, 네 가지 <strong>이웃</strong>으로 일정을 어떻게 고치는지를 따라갑니다.</p>
+    <div class="note">
+      <p><strong>이 장을 읽으면 알게 되는 것</strong></p>
+      <p>SA가 후보를 만들기 전에 "수락 임계값"을 먼저 뽑는 이유. 문제의 혼잡도에 따라 온도를 자동으로 정하는 식. 워커 4개가 각자 돌다가 크게 뒤처질 때만 공유 최선을 내려받는 규칙. 블록 하나를 옮기는 작은 이웃 셋(Shift, Rotate, Move)과, 가까이 있는 블록 7~13개를 한꺼번에 뜯어 고치는 <strong>큰 재구성</strong> 이웃.</p>
+      <p><strong>미리 알아야 할 것</strong></p>
+      <p>0장의 지역 탐색과 지역 최적해. 3장의 담금질 기법(온도와 수락 확률). 5장의 한 행 훑기와 탐욕 삽입, 앵커. 6장의 호라이즌과 워커 4개. 수학은 자연로그(ln)와 지수함수(eˣ), 거듭제곱.</p>
+    </div>
+    <p class="src">원래 프로그램에서는 <span class="mono">src/solver/annealing.rs</span>(SA 뼈대와 워커 공유), <span class="mono">src/solver/neighbors.rs</span>(작은 이웃 셋), <span class="mono">src/solver/reconstruct.rs</span>(큰 재구성)입니다. 이 장의 예시는 <span class="mono">prelim_prob_1</span>의 블록 100개를 단순 규칙(바운딩 박스끼리 안 겹치게 넣기)으로 배치한 일정(지연 21일, w₂ = 0일 때 점수 454,062)을 바탕으로 계산했습니다.</p>
+  </section>
+
+  <!-- ================= 1부 ================= -->
+  <div class="part">1부 · SA의 한 걸음</div>
+
+  <section>
+    <h2>상태: 일정 한 벌과 점수 하나</h2>
+    <p>SA가 들고 다니는 해(상태)는 단순합니다. 지금까지 들어온 블록마다 (블록 번호, 베이, 방향, x, y, 입고 시각, 출고 시각) 한 줄이 적힌 목록과, 그 일정의 목적 함수 점수 하나가 전부입니다.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 274" role="img" aria-label="prelim_prob_1의 베이 2를 44일에 위에서 본 모습. 블록 71, 63, 81, 85가 실제 다각형 모양으로 놓여 있고 각 블록의 기준점이 검은 점으로 표시되어 있다.">
+        <rect x="54" y="30" width="612" height="216" class="f-bay" stroke-width="1.5"/>
+        <polygon points="252.6,107.7 199.1,108.5 200.1,72.6 253.9,73.9 310.0,72.7 310.0,109.3 332.7,109.6 264.5,146.5 252.0,147.0" class="f-hull" stroke-width="1.2"/>
+        <polygon points="252.0,147.0 252.6,107.7 253.9,73.9 310.0,72.7 310.0,109.3 332.7,109.6 264.5,146.5" class="f-steel" stroke-width="1.2"/>
+        <circle cx="252.0" cy="147.0" r="3.5" fill="currentColor"/>
+        <text x="265.9" y="113.8" font-size="13" font-weight="700" fill="currentColor" text-anchor="middle">63</text>
+        <polygon points="54.0,237.0 82.5,204.6 57.8,175.8 86.5,142.7 117.2,175.2 119.8,172.8 105.8,239.0" class="f-hull" stroke-width="1.2"/>
+        <polygon points="54.0,237.0 82.5,204.6 117.2,175.2 119.8,172.8 105.8,239.0" class="f-steel" stroke-width="1.2"/>
+        <circle cx="54.0" cy="237.0" r="3.5" fill="currentColor"/>
+        <text x="86.9" y="194.8" font-size="13" font-weight="700" fill="currentColor" text-anchor="middle">71</text>
+        <polygon points="490.0,155.0 416.0,154.0 415.7,183.6 342.5,184.4 348.2,153.8 352.0,102.8 421.1,99.0 495.3,100.4" class="f-hull" stroke-width="1.2"/>
+        <polygon points="333.0,246.0 336.7,215.0 348.2,153.8 352.0,102.8 421.1,99.0 495.3,100.4 490.0,155.0 416.0,154.0 415.5,213.3 411.8,241.2 409.2,243.5" class="f-steel" stroke-width="1.2"/>
+        <circle cx="333.0" cy="246.0" r="3.5" fill="currentColor"/>
+        <text x="414.2" y="176.5" font-size="13" font-weight="700" fill="currentColor" text-anchor="middle">81</text>
+        <polygon points="585.0,237.0 544.6,235.6 501.6,238.4 496.2,191.1 539.9,184.6 533.6,141.0 531.7,96.0 575.3,95.5 576.4,143.6 579.8,186.5" class="f-steel" stroke-width="1.2"/>
+        <circle cx="585.0" cy="237.0" r="3.5" fill="currentColor"/>
+        <text x="540.6" y="170.9" font-size="13" font-weight="700" fill="currentColor" text-anchor="middle">85</text>
+        <text x="54" y="20" font-size="12" fill="currentColor">베이 2 · 68 × 24 · 44일의 모습</text>
+        <text x="666.0" y="20" font-size="11" class="t-muted" text-anchor="end">좌표 1 = 9px · 검은 점 = 기준점 (x, y)</text>
+        <text x="54" y="262" font-size="10" class="t-muted" text-anchor="middle">x=0</text>
+        <text x="234" y="262" font-size="10" class="t-muted" text-anchor="middle">x=20</text>
+        <text x="414" y="262" font-size="10" class="t-muted" text-anchor="middle">x=40</text>
+        <text x="594" y="262" font-size="10" class="t-muted" text-anchor="middle">x=60</text>
+        <text x="666" y="262" font-size="10" class="t-muted" text-anchor="middle">x=68</text>
+        <text x="48" y="250" font-size="10" class="t-muted" text-anchor="end">y=0</text>
+        <text x="48" y="142" font-size="10" class="t-muted" text-anchor="end">y=12</text>
+        <text x="48" y="34" font-size="10" class="t-muted" text-anchor="end">y=24</text>
+      </svg>
+      </div>
+      <figcaption>예시 배치에서 44일의 베이 2입니다. 파랑(민무늬)은 층 0, 녹색(점무늬)은 층 1입니다. SA는 이런 배치 100줄이 담긴 목록을 들고 조금씩 고쳐 나갑니다.</figcaption>
+    </figure>
+    <p>워커 하나가 마감까지 도는 반복문은 이렇습니다.</p>
+<pre><span class="c"># SA 워커의 반복문 (src/solver/annealing.rs:389)</span>
+반복 횟수 = 0
+while True:
+    if 다른 워커가 0점 해를 찾았거나, 지금 >= 마감: break
+    반복 횟수 += 1
+    if 반복 횟수 % 2000 == 0:
+        공유 최선이 충분히 좋으면 현재 해를 공유 최선으로 바꾼다
+
+    T = 지금 시각의 온도
+    임계값 = 현재 점수 − T × ln(0~1 난수)          <span class="c"># 후보를 만들기 전에 뽑는다</span>
+    후보 = 이웃 하나를 골라 후보 일정 만들기(현재 해, 임계값)
+
+    if 후보가 없음 or 후보 점수 > 임계값: continue  <span class="c"># 실패하거나 기각</span>
+    현재 해 = 후보                                  <span class="c"># 수락</span>
+    if 후보 점수 &lt; 개인 최선 점수:
+        개인 최선 = 후보
+        공유 최선보다도 좋으면 공유 최선을 바꾼다</pre>
+    <p>이웃은 현재 일정을 직접 고치지 않고 <strong>새 일정 복사본</strong>을 만들어 돌려줍니다. 기각되면 복사본을 버리면 끝이라 되돌릴 코드가 필요 없습니다.</p>
+  </section>
+
+  <!-- ================= 2부 ================= -->
+  <div class="part">2부 · 받아들이는 규칙과 워커 공유</div>
+
+  <section>
+    <h2>수락 임계값을 먼저 뽑는다</h2>
+    <p>3장에서 배운 SA는 후보를 만든 뒤, 점수가 Δ만큼 나빠졌으면 확률 e<sup>−Δ/T</sup>로 받아들입니다. 이것은 0~1 난수 u를 뽑아 u ≤ e<sup>−Δ/T</sup>인지 보는 것과 같습니다. 양변에 자연로그(ln)를 취하고 정리하면</p>
+    <div class="formula">후보 점수 ≤ 현재 점수 − T × ln(u)</div>
+    <p>가 됩니다. 이 식의 오른쪽을 <strong>수락 임계값</strong>이라고 부릅니다. 0 &lt; u &lt; 1이면 ln(u)는 항상 음수이므로 −T × ln(u)는 항상 0보다 큽니다. 그래서 점수가 좋아지거나 같은 후보는 무조건 수락되고, 조금 나쁜 후보는 온도가 높을수록 자주 수락됩니다.</p>
+    <p>확률은 똑같은데 왜 난수 u를 <strong>후보를 만들기 전에</strong> 뽑아 임계값을 계산할까요? <strong>임계값을 이웃에게 미리 알려 줄 수 있기 때문</strong>입니다. 4부의 큰 재구성 이웃은 블록을 하나씩 다시 넣는 도중에 "이대로 가면 임계값을 넘는다"는 것을 알면 끝까지 해 보지 않고 바로 그만둡니다.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 262" role="img" aria-label="왼쪽: 온도가 SA 시작 때 0.2 s에서 호라이즌 마감 때 0.02 s까지 지수적으로 내려가는 곡선. 오른쪽: 현재보다 나빠진 정도를 온도로 나눈 값에 따른 수락 확률 곡선. 0.69에서 50퍼센트, 2.3에서 10퍼센트, 4.6에서 1퍼센트.">
+        <text x="60" y="20" font-size="12" font-weight="700" fill="currentColor">온도: 한 호라이즌 동안 1/10로 내려간다</text>
+        <line x1="60" y1="190" x2="320" y2="190" class="s-line" stroke-width="1.5"/>
+        <line x1="60" y1="34" x2="60" y2="190" class="s-line" stroke-width="1.5"/>
+        <line x1="60" y1="175" x2="320" y2="175" class="s-muted" stroke-width=".5" stroke-dasharray="3 3"/>
+        <path d="M60.0,40.0 L65.0,46.8 L70.0,53.2 L75.0,59.4 L80.0,65.2 L85.0,70.9 L90.0,76.2 L95.0,81.3 L100.0,86.2 L105.0,90.9 L110.0,95.4 L115.0,99.6 L120.0,103.7 L125.0,107.6 L130.0,111.3 L135.0,114.8 L140.0,118.2 L145.0,121.4 L150.0,124.5 L155.0,127.5 L160.0,130.3 L165.0,133.0 L170.0,135.5 L175.0,138.0 L180.0,140.3 L185.0,142.6 L190.0,144.7 L195.0,146.7 L200.0,148.7 L205.0,150.5 L210.0,152.3 L215.0,154.0 L220.0,155.6 L225.0,157.2 L230.0,158.7 L235.0,160.1 L240.0,161.4 L245.0,162.7 L250.0,163.9 L255.0,165.1 L260.0,166.2 L265.0,167.3 L270.0,168.3 L275.0,169.3 L280.0,170.2 L285.0,171.1 L290.0,172.0 L295.0,172.8 L300.0,173.6 L305.0,174.3 L310.0,175.0" class="s-crane" stroke-width="2.5"/>
+        <circle cx="60" cy="40" r="4" class="t-crane"/><circle cx="310" cy="175" r="4" class="t-crane"/><circle cx="185" cy="142.6" r="3.5" class="t-crane"/>
+        <g font-size="11" class="t-muted" text-anchor="end">
+          <text x="54" y="44">0.2·s</text><text x="54" y="179">0.02·s</text><text x="54" y="194">0</text>
+        </g>
+        <text x="78" y="44" font-size="12" class="t-crane">T₀ = 0.2 × s</text>
+        <text x="320" y="153" font-size="12" class="t-crane" text-anchor="end">T₁ = 0.02 × s</text>
+        <text x="193" y="128" font-size="11" class="t-crane">절반 시점: 0.063 × s</text>
+        <g font-size="11" class="t-muted"><text x="60" y="208">SA 시작</text><text x="310" y="208" text-anchor="end">호라이즌 마감</text></g>
+        <text x="60" y="230" font-size="11" class="t-muted">s = 이 호라이즌의 초기 점수 ÷ 투입된 블록 수</text>
+
+        <text x="400" y="20" font-size="12" font-weight="700" fill="currentColor">수락 확률: 나빠진 정도 ÷ 온도가 정한다</text>
+        <line x1="400" y1="190" x2="700" y2="190" class="s-line" stroke-width="1.5"/>
+        <line x1="470" y1="34" x2="470" y2="194" class="s-muted" stroke-width="1" stroke-dasharray="3 3"/>
+        <line x1="400" y1="40" x2="470" y2="40" class="s-ok" stroke-width="2.5"/>
+        <path d="M470.0,40.0 L474.4,54.3 L478.8,67.2 L483.2,78.9 L487.6,89.5 L492.0,99.0 L496.4,107.7 L500.8,115.5 L505.2,122.6 L509.6,129.0 L514.0,134.8 L518.4,140.1 L522.8,144.8 L527.2,149.1 L531.6,153.0 L536.0,156.5 L540.4,159.7 L544.8,162.6 L549.2,165.2 L553.6,167.6 L558.0,169.7 L562.4,171.6 L566.8,173.4 L571.2,175.0 L575.6,176.4 L580.0,177.7 L584.4,178.9 L588.8,179.9 L593.2,180.9 L597.6,181.7 L602.0,182.5 L606.4,183.2 L610.8,183.9 L615.2,184.5 L619.6,185.0 L624.0,185.5 L628.4,185.9 L632.8,186.3 L637.2,186.6 L641.6,187.0 L646.0,187.3 L650.4,187.5 L654.8,187.8 L659.2,188.0 L663.6,188.2 L668.0,188.3 L672.4,188.5 L676.8,188.6 L681.2,188.8 L685.6,188.9 L690.0,189.0" class="s-steel" stroke-width="2.5"/>
+        <text x="404" y="56" font-size="11" class="t-ok">좋아지거나</text>
+        <text x="404" y="70" font-size="11" class="t-ok">같으면 100%</text>
+        <line x1="672.4" y1="186" x2="672.4" y2="145" class="s-muted" stroke-width=".8"/>
+        <g class="t-steel"><circle cx="500.4" cy="115" r="3.5"/><circle cx="571.2" cy="175" r="3.5"/><circle cx="672.4" cy="188.5" r="3.5"/></g>
+        <g font-size="11" fill="currentColor">
+          <text x="507" y="112">0.69 T 나쁘면 50%</text>
+          <text x="577" y="168">2.3 T 나쁘면 10%</text>
+          <text x="700" y="140" text-anchor="end">4.6 T 나쁘면 1%</text>
+        </g>
+        <g font-size="10" class="t-muted" text-anchor="middle">
+          <text x="470" y="206">0</text><text x="514" y="206">1</text><text x="558" y="206">2</text><text x="602" y="206">3</text><text x="646" y="206">4</text><text x="690" y="206">5</text>
+        </g>
+        <text x="470" y="230" font-size="11" class="t-muted">(후보 점수 − 현재 점수) ÷ T</text>
+        <text x="60" y="252" font-size="11" class="t-muted">두 곡선 모두 코드의 식을 그대로 그린 것입니다.</text>
+      </svg>
+      </div>
+      <figcaption>왼쪽: 온도는 호라이즌마다 새로 정해져 시작 값의 1/10까지 지수적으로 내려갑니다. 오른쪽: 현재보다 0.69 T 나쁜 후보는 절반의 확률로, 2.3 T 나쁜 후보는 10% 확률로 수락됩니다.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>온도는 "블록 하나당 평균 점수"로 자동 조절한다</h2>
+    <p>문제에 따라 하루 지연의 벌점(w₁)이 333에서 21,622까지 60배 넘게 다릅니다. 그래서 온도를 고정된 숫자로 둘 수 없습니다. 호라이즌마다 SA를 시작할 때의 최선 점수를 들어온 블록 수로 나눈 값(s)을 구해, 시작 온도 T₀ = 0.2 × s, 끝 온도 T₁ = 0.02 × s로 정합니다. 진행률 p(0에서 1)에 따라 온도는 <span class="mono">T(p) = 0.2 × s × 0.1^p</span>로 내려갑니다.</p>
+    <p>이 식 덕분에 온도가 문제의 혼잡도에 저절로 맞춰집니다. 지연이 거의 없는 여유로운 일정에서는 s가 작아서 처음부터 하루 늦어지는 이동을 거의 받지 않고, 지연이 많은 빽빽한 일정에서는 초반에 하루 이틀 늦추는 이동도 받아 가며 과감히 흔듭니다.</p>
+  </section>
+
+  <section>
+    <h2>워커 4개의 공유 규칙: 크게 뒤처졌을 때만 갈아탄다</h2>
+    <p>네 워커는 각자 자기 현재 해와 개인 최선을 들고 돌면서, 공용 <strong>공유 최선</strong> 하나를 함께 봅니다.</p>
+    <ul class="plain">
+      <li><strong>올리기.</strong> 워커가 자기 개인 최선을 갱신했을 때 공유 최선보다 좋으면, 공유 최선을 자기 해로 바꿉니다.</li>
+      <li><strong>가져오기.</strong> 2,000번 반복할 때마다 공유 최선을 확인합니다. 자기 현재 점수가 공유 최선보다 <strong>일정 기준(<code>min(10 × w₁, 500 × w₃)</code>, 대개 지연 3.5~10일분) 이상 나쁘고</strong>, 그 해를 아직 가져온 적이 없을 때만 자기 현재 해를 공유 최선으로 갈아탑니다.</li>
+    </ul>
+    <p>조금 뒤처진 정도로는 갈아타지 않고 자기 길을 계속 갑니다. 네 워커가 금방 똑같은 해 하나로 모여 버리는 일을 막기 위해서입니다.</p>
+  </section>
+
+  <!-- ================= 3부 ================= -->
+  <div class="part">3부 · 작은 이웃 세 가지: 블록 하나를 옮긴다</div>
+
+  <section>
+    <h2>어느 이웃을 쓸지는 주사위로 정한다</h2>
+    <p>매 반복마다 네 가지 이웃 중 하나를 정해진 비율로 뽑습니다. 앞의 셋(Shift, Rotate, Move)은 블록 하나를 무작위로 골라 빼고 다시 넣는 <strong>작은 이웃</strong>입니다. 모두 5장의 한 행 훑기나 탐욕 삽입을 부르므로, 규칙을 어기는 무효한 해는 처음부터 나오지 않습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>이웃</th><th>선택 비율</th><th>고정하는 것</th><th>한 번에 바꾸는 것</th><th>점수가 나빠질 수 있나</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Shift</strong></td><td>62.5%</td><td>베이, 방향</td><td>기준점 y를 앵커 쪽 6개 행으로 옮기고, x 전체에서 자리 찾기</td><td>예 (Z₁)</td></tr>
+        <tr><td><strong>Rotate</strong></td><td>12.5%</td><td>베이</td><td>다른 방향 전부 × 원래 높이 근처 5개 행에서 자리 찾기</td><td>예 (Z₁)</td></tr>
+        <tr><td><strong>Move</strong></td><td>12.5%</td><td>없음</td><td>모든 베이·방향에서 탐욕 삽입 (입고는 지금 이하만)</td><td>아니요</td></tr>
+        <tr><td><strong>큰 재구성</strong></td><td>12.5%</td><td>없음</td><td>가까이 있는 블록 7~13개를 한꺼번에 빼고 다시 넣기</td><td>예</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 350" role="img" aria-label="작은 이웃 세 가지. Shift는 블록을 같은 방향 그대로 기준점 행을 최대 5칸 내려 앵커 쪽 구석으로 옮긴다. Rotate는 방향을 바꾸고 기준점 행을 사전계산한 만큼 옮겨 같은 자리 근처에 놓는다. Move는 블록을 빼서 다른 베이나 방향을 포함해 가장 좋은 자리에 다시 넣는다.">
+        <defs>
+          <marker id="ah7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker>
+        </defs>
+        <!-- Shift -->
+        <text x="14" y="20" font-size="13" font-weight="700" fill="currentColor">Shift</text>
+        <text x="58" y="20" font-size="11" class="t-muted">같은 베이, 같은 방향</text>
+        <rect x="14" y="34" width="221" height="85" class="f-bay" stroke-width="1.2"/>
+        <rect x="17.4" y="74.8" width="61.2" height="42.5" class="s-muted" stroke-width="1"/>
+        <rect x="17.4" y="37.4" width="47.6" height="34" class="s-muted" stroke-width="1"/>
+        <rect x="14" y="64.6" width="221" height="17" class="f-crane" stroke-width="0" fill-opacity=".55"/>
+        <polygon points="233.1,102.0 227.9,64.0 194.2,64.6 163.1,64.7 162.9,67.8 225.9,101.0" class="s-muted" stroke-width="1.2" stroke-dasharray="4 3"/>
+        <polygon points="194.2,64.6 163.1,64.7 162.9,67.8 197.6,86.1" class="s-muted" stroke-width="1.2" stroke-dasharray="4 3"/>
+        <circle cx="194.2" cy="64.6" r="3" fill="currentColor"/>
+        <polygon points="151.5,115.6 146.3,77.6 112.6,78.2 81.5,78.3 81.3,81.4 144.3,114.6" class="f-hull" stroke-width="1.2"/>
+        <polygon points="112.6,78.2 81.5,78.3 81.3,81.4 116.0,99.7" class="f-steel" stroke-width="1.2"/>
+        <circle cx="112.6" cy="78.2" r="3" fill="currentColor"/>
+        <line x1="188.3" y1="65.6" x2="118.5" y2="77.2" class="s-crane" stroke-width="2" marker-end="url(#ah7)"/>
+        <text x="14" y="136" font-size="11" class="t-crane">기준점의 행: 16 → 12 (dy = −4)</text>
+        <g font-size="11" fill="currentColor">
+          <text x="14" y="158">① 블록을 빼고 기준점 행 6개를 훑는다</text>
+          <text x="14" y="175">② 행마다 x 전체에서 후보를 받는다</text>
+          <text x="14" y="192">③ 지연 → 입고 시각 → 앵커 쪽 순으로</text>
+          <text x="14" y="209">&#160;&#160;&#160;&#160;가장 좋은 후보로 옮긴다</text>
+        </g>
+        <!-- Rotate -->
+        <text x="250" y="20" font-size="13" font-weight="700" fill="currentColor">Rotate</text>
+        <text x="302" y="20" font-size="11" class="t-muted">같은 베이, 다른 방향</text>
+        <rect x="250" y="34" width="221" height="85" class="f-bay" stroke-width="1.2"/>
+        <polygon points="469.1,102.0 463.9,64.0 430.2,64.6 399.1,64.7 398.9,67.8 461.9,101.0" class="s-muted" stroke-width="1.2" stroke-dasharray="4 3"/>
+        <polygon points="430.2,64.6 399.1,64.7 398.9,67.8 433.6,86.1" class="s-muted" stroke-width="1.2" stroke-dasharray="4 3"/>
+        <circle cx="430.2" cy="64.6" r="3" fill="currentColor"/>
+        <polygon points="282.5,64.6 287.7,102.6 321.4,102.0 352.5,101.9 352.7,98.8 289.7,65.6" class="f-hull" stroke-width="1.2"/>
+        <polygon points="321.4,102.0 352.5,101.9 352.7,98.8 318.0,80.5" class="f-steel" stroke-width="1.2"/>
+        <circle cx="321.4" cy="102.0" r="3" fill="currentColor"/>
+        <line x1="258" y1="64.6" x2="463" y2="64.6" class="s-muted" stroke-width=".8" stroke-dasharray="3 3"/>
+        <line x1="258" y1="107.0" x2="463" y2="107.0" class="s-muted" stroke-width=".8" stroke-dasharray="3 3"/>
+        <line x1="375" y1="64.6" x2="375" y2="107.0" class="s-crane" stroke-width="2" marker-end="url(#ah7)"/>
+        <text x="434.0" y="50" font-size="10" class="t-muted" text-anchor="middle">방향 0 (원래)</text>
+        <text x="317.6" y="50" font-size="10" class="t-ok" text-anchor="middle">방향 4</text>
+        <text x="250" y="136" font-size="11" class="t-crane">기준점의 행: 16 → 5 (dy = −11)</text>
+        <g font-size="11" fill="currentColor">
+          <text x="250" y="158">① 다른 방향을 전부 차례로 시도한다</text>
+          <text x="250" y="175">② 방향마다 기준점 행을 dy만큼 옮겨</text>
+          <text x="250" y="192">&#160;&#160;&#160;&#160;원래 높이에 맞춘 뒤 ±2행을 훑는다</text>
+          <text x="250" y="209">③ 고르는 기준은 Shift와 같다</text>
+        </g>
+        <!-- Move -->
+        <text x="486" y="20" font-size="13" font-weight="700" fill="currentColor">Move</text>
+        <text x="530" y="20" font-size="11" class="t-muted">베이와 방향까지 다시</text>
+        <rect x="486" y="34" width="221" height="40" class="f-bay" stroke-width="1.2"/>
+        <rect x="486" y="80" width="221" height="40" class="f-bay" stroke-width="1.2"/>
+        <text x="702" y="46" font-size="10" class="t-muted" text-anchor="end">베이 A</text>
+        <text x="702" y="92" font-size="10" class="t-muted" text-anchor="end">베이 B</text>
+        <polygon points="660.9,73.0 655.7,35.0 622.0,35.6 590.9,35.7 590.7,38.8 653.7,72.0" class="s-muted" stroke-width="1.2" stroke-dasharray="4 3"/>
+        <polygon points="622.0,35.6 590.9,35.7 590.7,38.8 625.4,57.1" class="s-muted" stroke-width="1.2" stroke-dasharray="4 3"/>
+        <circle cx="622.0" cy="35.6" r="3" fill="currentColor"/>
+        <polygon points="494.7,81.5 499.9,119.6 533.6,119.0 564.7,118.9 564.9,115.8 501.9,82.5" class="f-hull" stroke-width="1.2"/>
+        <polygon points="533.6,119.0 564.7,118.9 564.9,115.8 530.2,97.5" class="f-steel" stroke-width="1.2"/>
+        <circle cx="533.6" cy="119.0" r="3" fill="currentColor"/>
+        <path d="M586,62 C578,70 574,78 568,86" class="s-crane" stroke-width="2" marker-end="url(#ah7)"/>
+        <text x="486" y="136" font-size="11" class="t-crane">베이 A → 베이 B, 방향 0 → 방향 4</text>
+        <g font-size="11" fill="currentColor">
+          <text x="486" y="158">① 블록 하나를 뺀다</text>
+          <text x="486" y="175">② 탐욕 삽입으로 모든 베이·방향에서</text>
+          <text x="486" y="192">&#160;&#160;&#160;&#160;가장 좋은 자리를 찾는다</text>
+          <text x="486" y="209">③ 단, 입고 시각은 지금 값 이하만</text>
+        </g>
+        <line x1="14" y1="226" x2="706" y2="226" class="s-muted" stroke-width=".5"/>
+        <g font-size="11" class="t-muted">
+          <text x="14" y="246">점선 윤곽 = 원래 자리, 색칠 = 새 자리, 검은 점 = 기준점.</text>
+          <text x="14" y="264">블록 모양은 prelim_prob_1의 blocks[2] 실제 좌표입니다. Shift의 주황 띠는 아래 앵커일 때 훑는 6개 행입니다.</text>
+          <text x="14" y="282">Rotate의 dy = −11은 방향 0을 180° 돌릴 때 원래 높이에 맞추기 위해 기준점을 11행 내려야 한다는 뜻입니다.</text>
+        </g>
+      </svg>
+      </div>
+      <figcaption>작은 이웃 셋은 모두 "블록 하나를 빼고, 나머지는 그대로 둔 채, 그 블록의 자리를 다시 찾는다"는 틀이 같습니다.</figcaption>
+    </figure>
+    <ul class="plain">
+      <li><strong>Shift(62.5%)는 정돈 담당입니다.</strong> 여덟 번에 다섯 번 뽑힐 만큼 자주 돌고 빠릅니다. 같은 베이·같은 방향에서 앵커 쪽 6개 행만 훑어 앵커 구석에 가장 가까운 자리로 옮깁니다. 점수가 같은 이동은 무조건 수락되므로, Shift는 점수를 건드리지 않고 블록들을 구석으로 찰싹 붙여 빈 공간을 반대쪽에 모으는 역할을 합니다.</li>
+      <li><strong>Rotate(12.5%)는 같은 베이 안에서 방향을 바꿉니다.</strong> 기준점이 블록의 한가운데가 아니므로, 방향을 돌리면 블록이 엉뚱한 높이로 튑니다. 그래서 미리 계산해 둔 y 보정값(dy)만큼 기준점을 옮겨 원래 높이에 맞춘 뒤, 그 위아래 2행씩 총 5개 행을 훑습니다.</li>
+      <li><strong>Move(12.5%)는 베이를 바꿀 수 있는 유일한 작은 이웃입니다.</strong> 5장의 탐욕 삽입으로 모든 베이와 방향을 다시 봅니다. 단, 입고 시각의 위 한계를 "지금의 입고 시각"으로 막아 두어 지연이 늘어나지 않습니다. 원래 자리도 후보에 포함되므로 Move가 내놓은 후보는 점수가 나빠질 수 없고 항상 수락됩니다.</li>
+    </ul>
+  </section>
+
+  <!-- ================= 4부 ================= -->
+  <div class="part">4부 · 큰 재구성: 여러 블록을 한꺼번에 뜯어 고친다</div>
+
+  <section>
+    <h2>왜 필요한가: 블록 하나씩으로는 구조를 못 바꾼다</h2>
+    <p>빽빽한 일정에서 블록 하나만 빼면 그 자리에 남는 틈은 그 블록의 모양과 기간에 꼭 맞는 틈뿐입니다. 서로 맞물린 블록 셋의 배열을 바꾸려면 셋이 함께 움직여야 합니다. <strong>큰 재구성</strong>(Large Reconstruction)은 가까이 있는 블록 7~13개를 한꺼번에 빼고, 다른 순서로 다시 넣는 이웃입니다. 2장에서 본 대로 이 이웃을 빼면 최종 점수가 10.5%나 나빠집니다.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 170" role="img" aria-label="큰 재구성의 다섯 단계. 제거 개수 정하기, 시드 고르기, 시드 주변 블록을 함께 제거, 다시 넣을 순서 정하기, 하나씩 탐욕 삽입. 모두 들어가면 후보 일정이 되고 하나라도 실패하면 시도 전체가 실패한다.">
+        <g stroke-width="1.2">
+          <rect x="14" y="20" width="124" height="74" class="f-bay"/>
+          <rect x="156" y="20" width="124" height="74" class="f-crane"/>
+          <rect x="298" y="20" width="124" height="74" class="f-steel"/>
+          <rect x="440" y="20" width="124" height="74" class="f-bay"/>
+          <rect x="582" y="20" width="124" height="74" class="f-hull"/>
+        </g>
+        <g class="s-line" stroke-width="1.5">
+          <line x1="138" y1="57" x2="154" y2="57" marker-end="url(#ah7)"/>
+          <line x1="280" y1="57" x2="296" y2="57" marker-end="url(#ah7)"/>
+          <line x1="422" y1="57" x2="438" y2="57" marker-end="url(#ah7)"/>
+          <line x1="564" y1="57" x2="580" y2="57" marker-end="url(#ah7)"/>
+        </g>
+        <g font-size="12" font-weight="700" fill="currentColor" text-anchor="middle">
+          <text x="76" y="42">① 몇 개를 뺄까</text><text x="218" y="42">② 시드 고르기</text><text x="360" y="42">③ 주변을 함께 뺌</text><text x="502" y="42">④ 순서 정하기</text><text x="644" y="42">⑤ 하나씩 삽입</text>
+        </g>
+        <g font-size="11" fill="currentColor" text-anchor="middle">
+          <text x="76" y="62">k = 7~13</text><text x="76" y="78">작은 쪽이 더 자주</text>
+          <text x="218" y="62">나쁨 · 유동성 · 무작위</text><text x="218" y="78">평균 3~6개</text>
+          <text x="360" y="62">같은 베이에서</text><text x="360" y="78">거리 d가 작은 순</text>
+          <text x="502" y="62">부피, 급함 등의 점수</text><text x="502" y="78">가중치는 매번 새로</text>
+          <text x="644" y="62">블록마다 지연 상한을</text><text x="644" y="78">임계값에서 계산</text>
+        </g>
+        <path d="M644,94 v22" class="s-line" stroke-width="1.5" marker-end="url(#ah7)"/>
+        <text x="706" y="134" font-size="12" class="t-ok" text-anchor="end">전부 들어가면 → 후보 일정. SA가 점수(w₂·Z₂ 포함)로 수락 여부를 정한다</text>
+        <text x="706" y="154" font-size="12" class="t-crane" text-anchor="end">하나라도 못 들어가면 → 시도 전체가 실패. 현재 일정은 그대로</text>
+      </svg>
+      </div>
+      <figcaption>큰 재구성의 다섯 단계입니다. 작은 이웃이 싸게 자주 다듬고, 큰 재구성이 비싸게 가끔 구조를 바꿉니다.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>①~③ 무엇을 뺄까: 시드와 그 주변을 함께 뺀다</h2>
+    <p>아무 블록이나 여기저기서 9개를 뽑으면 서로 상관없는 블록들이라 각자 원래 자리로 돌아갈 뿐입니다. 그래서 먼저 중심이 될 블록(<strong>시드</strong>) 몇 개를 뽑고, 각 시드와 가까운 블록들을 묶음으로 뺍니다.</p>
+    <ol class="plain">
+      <li><strong>몇 개를 뺄까(k).</strong> 7~13 사이에서 뽑되, 0~1 난수를 제곱해 작은 값이 더 자주 나오게 합니다. 7개가 약 38%로 가장 많고, 평균은 8.9개입니다.</li>
+      <li><strong>시드 고르기.</strong> 각 시드가 자기를 포함해 1~4개씩 맡도록 묶음 크기를 합이 k가 될 때까지 뽑습니다(예: k = 9이면 [2, 3, 1, 3], 시드 4개). 시드는 세 방식을 1 : 1 : 2 비율로 섞어 고릅니다.
+        <ul class="plain">
+          <li><strong>나쁨(25%):</strong> 지금 지연이나 선호 벌점이 큰 블록(고치면 점수가 바로 줄어듦).</li>
+          <li><strong>유동성(25%):</strong> 납기 여유가 넉넉하고 어느 베이에 가도 손해가 작은 블록(자리를 비켜 주기 쉬움).</li>
+          <li><strong>무작위(50%):</strong> 전체에서 아무거나.</li>
+        </ul>
+        앞의 1~2개만 자유롭게 뽑고(<strong>기준 시드</strong>), 나머지 시드는 기준 시드와 <strong>입고 시각이 가까운 블록</strong> 중에서 고릅니다. 이때 입고 시각 차이가 같으면 <strong>다른 베이</strong>의 블록이 먼저 뽑혀서, 비슷한 시기의 블록끼리 베이를 맞바꿀 수 있게 됩니다.
+      </li>
+      <li><strong>시드 주변 함께 빼기.</strong> 각 시드와 <strong>같은 베이</strong>에 있는 블록 중 아래 거리 d가 가까운 순으로 (묶음 크기 − 1)개를 함께 뺍니다.
+        <div class="formula">d = λx · |Δx|^p + λy · |Δy|^p + λt · |Δt|^p</div>
+        여기서 Δx, Δy는 바운딩 박스 중심 사이의 거리, Δt는 입고 시각 차이입니다. 시도마다 λx ∈ [0.1, 4.0], λy ∈ [0.001, 0.002], λt ∈ [0.5, 1.5], p ∈ [2, 4]를 새로 뽑습니다. λy가 다른 둘의 수백분의 1이라 <strong>y 차이는 사실상 무시되고, x 위치와 시기가 비슷한 블록들</strong>이 함께 빠집니다. 베이는 세로가 좁아(블록 두 개쯤 폭) 같은 x와 시기에 있는 블록들이 서로 자리를 다투기 때문입니다.
+      </li>
+    </ol>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 378" role="img" aria-label="예시 배치의 베이 1과 베이 2를 가로축 시간, 세로축 x 위치로 그린 그림. 각 블록이 직사각형이고, 시드 네 개와 시드와 함께 제거되는 블록 다섯 개가 색으로 표시되어 있다. 아래에는 다시 넣는 순서 68, 89, 45, 72, 4, 85, 48, 65, 99가 적혀 있다.">
+        <text x="74" y="18" font-size="11" class="t-muted">가로 = 시간(블록이 머무는 기간), 세로 = 베이 안의 x 범위.</text>
+        <text x="74" y="34" font-size="11" class="t-muted">y 방향은 접어서 그렸으므로, 겹쳐 보이는 직사각형은 y가 다른 블록입니다.</text>
+        <rect x="74.0" y="52" width="625.6" height="161.3" class="f-bay" stroke-width="1" stroke-opacity=".5"/>
+        <text x="66.0" y="128.6" font-size="12" fill="currentColor" text-anchor="end">베이 1</text>
+        <text x="66.0" y="143.6" font-size="10" class="t-muted" text-anchor="end">x: 0~144</text>
+        <text x="66.0" y="213.3" font-size="10" class="t-muted" text-anchor="end">0</text>
+        <text x="66.0" y="60.0" font-size="10" class="t-muted" text-anchor="end">144</text>
+        <rect x="120.0" y="196.5" width="64.4" height="16.6" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="129.2" y="177.4" width="73.6" height="18.5" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="129.2" y="155.1" width="92.0" height="22.4" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="166.0" y="138.2" width="64.4" height="16.1" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="166.0" y="116.6" width="64.4" height="21.1" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="175.2" y="103.5" width="46.0" height="12.7" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="193.6" y="202.1" width="64.4" height="10.3" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="212.0" y="204.0" width="36.8" height="8.5" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="248.8" y="177.7" width="82.8" height="35.6" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="267.2" y="209.2" width="36.8" height="4.1" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="294.8" y="174.1" width="82.8" height="34.5" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="340.8" y="207.7" width="64.4" height="5.6" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="350.0" y="187.5" width="64.4" height="19.3" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="359.2" y="171.9" width="55.2" height="15.6" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="377.6" y="178.3" width="73.6" height="8.3" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="396.0" y="198.7" width="46.0" height="14.2" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="405.2" y="157.3" width="73.6" height="14.6" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="442.0" y="194.7" width="101.2" height="18.6" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="469.6" y="187.5" width="46.0" height="6.7" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="469.6" y="174.8" width="92.0" height="12.8" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="497.2" y="185.9" width="55.2" height="8.0" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="515.6" y="159.4" width="82.8" height="15.1" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="524.8" y="143.8" width="46.0" height="15.6" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="524.8" y="137.5" width="73.6" height="20.9" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="524.8" y="128.9" width="92.0" height="8.2" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="524.8" y="121.4" width="73.6" height="7.4" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="534.0" y="108.9" width="92.0" height="11.4" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="534.0" y="88.7" width="92.0" height="31.6" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="534.0" y="67.6" width="101.2" height="20.1" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="534.0" y="177.4" width="82.8" height="8.1" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="598.4" y="153.4" width="82.8" height="23.1" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="616.8" y="133.5" width="73.6" height="19.3" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="377.6" y="150.8" width="101.2" height="20.9" class="f-crane" stroke-width="1.5" fill-opacity=".85"/>
+        <rect x="543.2" y="189.6" width="82.8" height="23.5" class="f-crane" stroke-width="1.5" fill-opacity=".85"/>
+        <rect x="570.8" y="200.6" width="64.4" height="11.6" class="f-steel" stroke-width="1.5" fill-opacity=".85"/>
+        <rect x="580.0" y="189.8" width="55.2" height="10.5" class="f-steel" stroke-width="1.5" fill-opacity=".85"/>
+        <rect x="74.0" y="242" width="625.6" height="76.2" class="f-bay" stroke-width="1" stroke-opacity=".5"/>
+        <text x="66.0" y="276.1" font-size="12" fill="currentColor" text-anchor="end">베이 2</text>
+        <text x="66.0" y="291.1" font-size="10" class="t-muted" text-anchor="end">x: 0~68</text>
+        <text x="66.0" y="318.2" font-size="10" class="t-muted" text-anchor="end">0</text>
+        <text x="66.0" y="250.0" font-size="10" class="t-muted" text-anchor="end">68</text>
+        <rect x="74.0" y="303.6" width="36.8" height="14.5" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="74.0" y="312.6" width="36.8" height="5.3" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="83.2" y="305.7" width="55.2" height="11.7" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="129.2" y="299.1" width="46.0" height="18.2" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="147.6" y="304.7" width="27.6" height="12.7" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="147.6" y="285.3" width="92.0" height="19.5" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="147.6" y="305.4" width="36.8" height="11.7" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="166.0" y="277.5" width="55.2" height="7.3" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="175.2" y="305.2" width="110.4" height="13.0" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="202.8" y="308.8" width="46.0" height="8.6" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="221.2" y="294.6" width="46.0" height="13.2" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="248.8" y="262.8" width="73.6" height="31.8" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="267.2" y="249.8" width="73.6" height="12.7" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="267.2" y="243.1" width="55.2" height="6.8" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="285.6" y="306.5" width="46.0" height="11.7" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="285.6" y="303.8" width="82.8" height="14.3" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="331.6" y="272.2" width="55.2" height="16.0" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="350.0" y="248.2" width="55.2" height="23.1" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="359.2" y="305.4" width="55.2" height="12.7" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="405.2" y="309.7" width="36.8" height="8.4" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="405.2" y="255.4" width="64.4" height="32.6" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="423.6" y="300.4" width="36.8" height="9.1" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="432.8" y="283.5" width="73.6" height="16.6" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="469.6" y="263.2" width="73.6" height="20.2" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="442.0" y="310.0" width="73.6" height="8.2" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="543.2" y="278.6" width="82.8" height="38.4" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="543.2" y="267.5" width="82.8" height="50.6" class="s-muted" stroke-width=".8" stroke-opacity=".7"/>
+        <rect x="239.6" y="293.5" width="46.0" height="11.0" class="f-steel" stroke-width="1.5" fill-opacity=".85"/>
+        <rect x="304.0" y="294.6" width="46.0" height="11.2" class="f-steel" stroke-width="1.5" fill-opacity=".85"/>
+        <rect x="331.6" y="288.4" width="82.8" height="15.1" class="f-crane" stroke-width="1.5" fill-opacity=".85"/>
+        <rect x="543.2" y="250.6" width="82.8" height="27.2" class="f-steel" stroke-width="1.5" fill-opacity=".85"/>
+        <rect x="478.8" y="252.1" width="55.2" height="11.1" class="f-crane" stroke-width="1.5" fill-opacity=".85"/>
+        <line x1="478.8" y1="257.6" x2="543.2" y2="264.2" class="s-line" stroke-width="1.2" stroke-dasharray="4 3"/>
+        <line x1="331.6" y1="295.9" x2="304.0" y2="300.2" class="s-line" stroke-width="1.2" stroke-dasharray="4 3"/>
+        <line x1="331.6" y1="295.9" x2="239.6" y2="299.0" class="s-line" stroke-width="1.2" stroke-dasharray="4 3"/>
+        <line x1="543.2" y1="201.4" x2="570.8" y2="206.4" class="s-line" stroke-width="1.2" stroke-dasharray="4 3"/>
+        <line x1="543.2" y1="201.4" x2="580.0" y2="195.0" class="s-line" stroke-width="1.2" stroke-dasharray="4 3"/>
+        <circle cx="377.6" cy="161.2" r="3" fill="currentColor"/>
+        <text x="428.2" y="165.2" font-size="11" font-weight="700" fill="currentColor" text-anchor="middle">89</text>
+        <circle cx="543.2" cy="201.4" r="3" fill="currentColor"/>
+        <text x="537.2" y="205.4" font-size="11" font-weight="700" fill="currentColor" text-anchor="end">48</text>
+        <circle cx="570.8" cy="206.4" r="3" fill="currentColor"/>
+        <text x="640.2" y="210.4" font-size="11" font-weight="700" fill="currentColor" text-anchor="start">99</text>
+        <circle cx="580.0" cy="195.0" r="3" fill="currentColor"/>
+        <text x="633.2" y="185.8" font-size="11" font-weight="700" fill="currentColor" text-anchor="end">65</text>
+        <circle cx="239.6" cy="299.0" r="3" fill="currentColor"/>
+        <text x="241.6" y="289.5" font-size="11" font-weight="700" fill="currentColor" text-anchor="start">45</text>
+        <circle cx="304.0" cy="300.2" r="3" fill="currentColor"/>
+        <text x="306.0" y="290.6" font-size="11" font-weight="700" fill="currentColor" text-anchor="start">4</text>
+        <circle cx="331.6" cy="295.9" r="3" fill="currentColor"/>
+        <text x="373.0" y="299.9" font-size="11" font-weight="700" fill="currentColor" text-anchor="middle">72</text>
+        <circle cx="543.2" cy="264.2" r="3" fill="currentColor"/>
+        <text x="584.6" y="268.2" font-size="11" font-weight="700" fill="currentColor" text-anchor="middle">68</text>
+        <circle cx="478.8" cy="257.6" r="3" fill="currentColor"/>
+        <text x="480.8" y="248.1" font-size="11" font-weight="700" fill="currentColor" text-anchor="start">85</text>
+        <line x1="74.0" y1="318.2" x2="74.0" y2="323.2" class="s-line" stroke-width="1"/>
+        <text x="74.0" y="336.2" font-size="10" class="t-muted" text-anchor="middle">0일</text>
+        <line x1="166.0" y1="318.2" x2="166.0" y2="323.2" class="s-line" stroke-width="1"/>
+        <text x="166.0" y="336.2" font-size="10" class="t-muted" text-anchor="middle">10일</text>
+        <line x1="258.0" y1="318.2" x2="258.0" y2="323.2" class="s-line" stroke-width="1"/>
+        <text x="258.0" y="336.2" font-size="10" class="t-muted" text-anchor="middle">20일</text>
+        <line x1="350.0" y1="318.2" x2="350.0" y2="323.2" class="s-line" stroke-width="1"/>
+        <text x="350.0" y="336.2" font-size="10" class="t-muted" text-anchor="middle">30일</text>
+        <line x1="442.0" y1="318.2" x2="442.0" y2="323.2" class="s-line" stroke-width="1"/>
+        <text x="442.0" y="336.2" font-size="10" class="t-muted" text-anchor="middle">40일</text>
+        <line x1="534.0" y1="318.2" x2="534.0" y2="323.2" class="s-line" stroke-width="1"/>
+        <text x="534.0" y="336.2" font-size="10" class="t-muted" text-anchor="middle">50일</text>
+        <line x1="626.0" y1="318.2" x2="626.0" y2="323.2" class="s-line" stroke-width="1"/>
+        <text x="626.0" y="336.2" font-size="10" class="t-muted" text-anchor="middle">60일</text>
+        <text x="74" y="360" font-size="12" fill="currentColor">④에서 정해지는 다시 넣는 순서: <tspan font-weight="700">68 → 89 → 45 → 72 → 4 → 85 → 48 → 65 → 99</tspan></text>
+      </svg>
+      </div>
+      <figcaption>예시 배치에서 k = 9개를 빼는 한 번의 시도입니다. 주황이 시드(85, 72, 89, 48), 파랑이 시드와 함께 빠지는 주변 블록(68, 4, 45, 99, 65)입니다. 비슷한 시기의 블록들이 베이 1과 베이 2에서 함께 빠져, 서로 베이를 맞바꿀 여지가 생깁니다.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>④~⑤ 어떻게 다시 넣나: 임계값으로 시간 범위를 좁힌다</h2>
+    <p>뺀 블록들을 어떤 순서로 다시 넣는지가 중요합니다. 큰 블록을 먼저 넣어야 채우기가 잘되지만, 급한 블록을 먼저 넣어야 지연이 줄어들기 때문입니다(2장). 그래서 시도마다 <strong>여섯 가지 기준의 가중치를 새로 뽑아</strong> 점수가 높은 블록부터 넣습니다. 주된 기준은 부피(넓이 × P), 한계 시각의 급함, 현재 벌점 셋이고, 선호 차이, 여유의 빡빡함, 난수를 작게 더합니다.</p>
+    <p>순서가 정해지면 하나씩 탐욕 삽입합니다. 이때 2부에서 미리 뽑아 둔 <strong>수락 임계값</strong>이 아주 큰 힘을 발휘합니다.</p>
+<pre><span class="c"># 큰 재구성의 재삽입 반복문 (src/solver/reconstruct.rs:158)</span>
+확정 합 = 남은 블록들의 (w₁ × 지연 + w₃ × 선호 벌점) 합
+for 블록 in 뺀 블록 목록 (점수 순):
+    if 확정 합 > 임계값: return 없음                     <span class="c"># 이미 기각 확정 → 포기</span>
+    허용 지연 = ⌊(임계값 − 확정 합) ÷ w₁⌋
+    입고 시각 상한 = 납기 + 허용 지연 − 작업 기간
+    자리 = 탐욕 삽입(블록, 입고 범위 = [R, 입고 시각 상한], 기준 지연 = 원래 지연)
+    if 자리가 없음: return 없음                          <span class="c"># 포기하고 복사본을 버린다</span>
+    일정에 자리를 넣고, 확정 합에 방금 블록의 벌점을 더한다
+return 새 일정</pre>
+    <div class="formula">허용 지연 = ⌊(임계값 − 확정 합) ÷ w₁⌋ &nbsp;&nbsp;·&nbsp;&nbsp; 입고 시각 상한 = 납기 + 허용 지연 − 작업 기간</div>
+    <p>아직 안 넣은 블록들의 벌점과 마지막에 더해질 w₂·Z₂는 모두 0 이상이므로, 지금 넣는 블록이 "허용 지연"보다 하루라도 더 늦으면 최종 점수는 반드시 임계값을 넘게 됩니다. 어차피 기각될 후보이므로 그렇게 늦은 입고 시각은 아예 찾아보지 않고, 범위 안에 자리가 없으면 즉시 그 시도를 버립니다.</p>
+    <p>예시 배치(w₁ = 21,622, 확정 합 324,330, 임계값 454,691)로 계산해 보면 이렇습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>차례</th><th>그때의 확정 합</th><th>허용 지연</th><th>입고 시각 상한</th></tr></thead>
+      <tbody>
+        <tr><td>1번째: 블록 68 (납기 54, P = 9)</td><td>324,330</td><td>⌊(454,691 − 324,330) ÷ 21,622⌋ = 6일</td><td>54 + 6 − 9 = 51일</td></tr>
+        <tr><td>2번째: 블록 89 (납기 48, P = 11)</td><td>410,818 (68이 4일 늦었다고 가정)</td><td>⌊(454,691 − 410,818) ÷ 21,622⌋ = 2일</td><td>48 + 2 − 11 = 39일</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>앞 블록이 예산을 아끼면 뒤 블록의 여유가 넓어지고, 앞에서 예산을 다 쓰면 뒤에서는 지연 없는 자리만 허용됩니다. 중간에 하나라도 못 들어가면 복사본을 버리고 바로 다음 시도로 넘어갑니다. <strong>가망 없는 시도를 싸고 빠르게 포기하는 것</strong>이 큰 재구성의 속도 비결입니다.</p>
+  </section>
+
+  <section>
+    <h2>더 알고 싶다면</h2>
+    <ul class="plain">
+      <li><strong>시각화 도구.</strong> 저장소에는 큰 재구성이 후보를 만들 때마다 스냅샷을 저장해 한 단계씩 2D·3D로 돌려 보는 도구(<span class="mono">tools/anneal_visualizer.py</span>, <span class="mono">anneal_visualizer_3d.py</span>)가 함께 들어 있습니다.</li>
+      <li><strong>저자가 시도했다가 버린 아이디어.</strong> 기술 보고서에는 빔 서치 재구성, 재가열과 킥, 해시 타부, 출고 시각 맞바꾸기, 같은 날 입출고 순서 최적화, 적응형 온도, 크레인 가림 블록 직접 제거 등이 실패 목록으로 실려 있습니다. 자세한 정리와 git 흔적은 8장에 있습니다.</li>
+      <li><strong>저자의 보고서와 조금 다른 곳.</strong> 보고서는 Shift를 "가까운 이동량 하나를 뽑는다", Rotate를 "기하학적으로 비슷한 방향으로 바꾼다"고 적었지만, 실제 코드는 Shift가 6개 행과 x 전체를 훑고, Rotate는 다른 모든 방향을 시도합니다(IoU는 방향을 거르는 게 아니라 y 보정값 dy를 구하는 데 씁니다).</li>
+    </ul>
+    <p class="src">SA 반복과 임계값 <span class="mono">annealing.rs:125, 389</span>, 공유 최선 <span class="mono">:30, 52</span>, 온도 식 <span class="mono">params.rs:147</span>. 작은 이웃 <span class="mono">neighbors.rs:36, 116, 136, 207</span>. 큰 재구성 <span class="mono">reconstruct.rs:113, 247, 377, 553</span>. 파라미터(<span class="mono">params/default.yaml</span>): <span class="mono">temperature: [0.2, 0.02]</span>, <span class="mono">exchange_interval: 2000</span>, <span class="mono">probabilities: { shift: 1.0, move: 0.2, rotate: 0.2, reconstruct: 0.2 }</span>, <span class="mono">remove_count: [7, 13]</span>.</p>
+  </section>
+
+  <section>
+    <h2>이해 확인</h2>
+    <details>
+      <summary>수락 임계값을 후보를 만들기 전에 뽑으면 수락 확률이 달라지나요? 왜 먼저 뽑나요?</summary>
+      <p>확률은 e^(−Δ/T)로 완전히 같습니다. 먼저 뽑는 이유는 임계값을 큰 재구성 이웃에 넘겨, 블록을 다시 넣는 도중에 "어차피 기각될" 늦은 시각을 미리 잘라 내고 가망 없는 시도를 빨리 포기하기 위해서입니다.</p>
+    </details>
+    <details>
+      <summary>Shift로 만든 후보의 점수가 현재와 달라진다면, 목적 함수의 어느 항 때문인가요?</summary>
+      <p>Z₁(납기 지연)뿐입니다. Shift는 베이를 바꾸지 않으므로 Z₂(작업량 균형)와 Z₃(베이 선호)는 그대로입니다. 점수가 같은 이동은 무조건 수락되므로, Shift는 점수를 유지하며 블록을 구석으로 정돈하는 역할도 합니다.</p>
+    </details>
+    <details>
+      <summary>Move 이웃이 만든 후보는 왜 항상 수락되나요?</summary>
+      <p>입고 시각의 위 한계를 "지금의 입고 시각"으로 막아 두었기 때문입니다. 원래 자리도 후보에 포함되므로 탐욕 삽입이 고른 자리는 현재 점수보다 나빠질 수 없고, 점수가 같거나 좋아진 후보는 SA에서 100% 수락됩니다.</p>
+    </details>
+    <details>
+      <summary>큰 재구성에서 시드 주변을 고를 때 y 방향 가중치(λy)가 아주 작은 이유는 무엇인가요?</summary>
+      <p>베이의 세로 폭이 블록 두 개쯤 들어갈 정도로 좁기 때문입니다. x 위치와 입고 시기가 비슷한 블록들은 y가 달라도 서로 자리를 다투는 사이이므로, y를 무시하고 함께 빼야 그 구간의 배치를 통째로 다시 짤 수 있습니다.</p>
+    </details>
+    <details>
+      <summary>큰 재구성에서 블록 9개 중 세 번째를 넣으려는데 자리가 없습니다. 이미 넣은 두 개는 어떻게 되나요?</summary>
+      <p>전부 버려집니다. 현재 일정의 복사본에서 작업했으므로 복사본을 버리면 원래 일정은 그대로 남고, SA는 다음 반복으로 넘어갑니다.</p>
+    </details>
+  </section>
+  <div class="pager"><a href="#ch6">← 이전: 6장 롤링 호라이즌</a><a href="#ch8">다음: 8장 결과와 교훈 →</a></div>
+</article>

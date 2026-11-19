@@ -1,0 +1,362 @@
+<article class="chapter" id="ch2">
+  <header>
+    <div class="kicker">2 / 8</div>
+    <h1>핵심 통찰과 전체 구조: 순서를 먼저 정하고, 조금씩 늘려 가며 푼다</h1>
+  </header>
+
+  <section>
+    <p class="lead">이 해법은 두 단계입니다. 1단계에서 블록의 모양을 무시하고 "누가 언제 들어가는 것이 좋은가"만 먼저 풀어 <strong>투입 순서</strong>를 얻습니다. 2단계에서 그 순서대로 블록을 20개씩 추가하면서 실제 좌표와 시각을 정합니다.</p>
+    <div class="note">
+      <p><strong>이 장을 읽으면 알게 되는 것</strong></p>
+      <p>이 문제에서 지연을 피할 수 없는 이유. 저자가 얻은 세 가지 통찰(빽빽한 일정은 앞쪽부터 굳는다 / 조금씩 늘려 가며 풀면 된다 / 좋은 순서는 간단한 규칙으로 나오지 않는다). 해법 전체가 어떤 순서로 돌아가는지. 3~7장이 각각 그중 어느 부분을 다루는지.</p>
+      <p><strong>미리 알아야 할 것</strong></p>
+      <p>1장의 문제 정의(베이, 블록, R·P·D, 규칙 A·B, Z₁·Z₂·Z₃)와 0장의 탐욕법, 지역 탐색, 이웃, 지역 최적해.</p>
+    </div>
+    <p>이 장은 큰 그림만 봅니다. 각 부품이 정확히 어떻게 동작하는지는 3장부터 차례로 다루므로, 여기서는 "왜 이런 구조가 되었는가"에 집중해 읽으면 됩니다.</p>
+  </section>
+
+  <div class="part">1부 · 데이터에서 본 문제의 성격</div>
+
+  <section>
+    <h2>자리가 모자란다</h2>
+    <p>학습 데이터 <span class="mono">prelim_prob_6</span>은 블록 250개를 베이 3개(154 × 15, 79 × 19, 105 × 20)에 넣는 문제입니다. 세 베이의 넓이를 더하면 2,310 + 1,501 + 2,100 = 5,911입니다.</p>
+    <p>간단한 계산을 하나 해 봤습니다. 모든 블록을 기다리게 하지 않고 release 날(R)에 바로 넣어 P일 동안 둔다고 가정합니다. 그러면 날마다 "그날 베이에 있어야 하는 블록들"이 정해집니다. 그 블록들의 넓이를 더한 값을 베이 넓이의 합 5,911로 나눈 것이 아래 그림입니다.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 235" role="img" aria-label="prelim_prob_6에서 모든 블록을 release 날에 넣는다고 가정했을 때 날짜별 필요 넓이를 베이 넓이 합으로 나눈 비율. 17일부터 54일까지 100퍼센트를 넘고 최대 155퍼센트이다.">
+        <polygon points="60,190 60.0,185.5 68.6,185.5 68.6,179.2 77.2,179.2 77.2,174.7 85.8,174.7 85.8,167.5 94.4,167.5 94.4,160.3 103.0,160.3 103.0,154.9 111.6,154.9 111.6,152.2 120.2,152.2 120.2,149.5 128.8,149.5 128.8,143.2 137.4,143.2 137.4,138.7 146.0,138.7 146.0,134.2 154.6,134.2 154.6,129.7 163.2,129.7 163.2,126.1 171.8,126.1 171.8,118.9 180.4,118.9 180.4,110.8 189.0,110.8 189.0,104.5 197.6,104.5 197.6,102.7 206.2,102.7 206.2,98.2 214.8,98.2 214.8,90.1 223.4,90.1 223.4,82.0 232.0,82.0 232.0,80.2 240.6,80.2 240.6,71.2 249.2,71.2 249.2,69.4 257.8,69.4 257.8,64.0 266.4,64.0 266.4,59.5 275.0,59.5 275.0,54.1 283.6,54.1 283.6,50.5 292.2,50.5 292.2,51.4 300.8,51.4 300.8,51.4 309.4,51.4 309.4,57.7 318.0,57.7 318.0,55.9 326.6,55.9 326.6,55.0 335.2,55.0 335.2,57.7 343.8,57.7 343.8,58.6 352.4,58.6 352.4,62.2 361.0,62.2 361.0,58.6 369.6,58.6 369.6,60.4 378.2,60.4 378.2,55.9 386.8,55.9 386.8,52.3 395.4,52.3 395.4,57.7 404.0,57.7 404.0,52.3 412.6,52.3 412.6,55.9 421.2,55.9 421.2,58.6 429.8,58.6 429.8,56.8 438.4,56.8 438.4,54.1 447.0,54.1 447.0,59.5 455.6,59.5 455.6,56.8 464.2,56.8 464.2,55.9 472.8,55.9 472.8,64.9 481.4,64.9 481.4,69.4 490.0,69.4 490.0,71.2 498.6,71.2 498.6,81.1 507.2,81.1 507.2,86.5 515.8,86.5 515.8,92.8 524.4,92.8 524.4,98.2 533.0,98.2 533.0,105.4 541.6,105.4 541.6,108.1 550.2,108.1 550.2,109.0 558.8,109.0 558.8,115.3 567.4,115.3 567.4,123.4 576.0,123.4 576.0,127.9 584.6,127.9 584.6,135.1 593.2,135.1 593.2,143.2 601.8,143.2 601.8,147.7 610.4,147.7 610.4,152.2 619.0,152.2 619.0,159.4 627.6,159.4 627.6,163.9 636.2,163.9 636.2,171.1 644.8,171.1 644.8,180.1 653.4,180.1 653.4,180.1 662.0,180.1 662.0,180.1 670.6,180.1 670.6,182.8 679.2,182.8 679.2,182.8 687.8,182.8 687.8,190" class="f-steel" stroke-width="1"/>
+        <line x1="60" y1="190" x2="700" y2="190" class="s-line" stroke-width="1.5"/>
+        <line x1="60" y1="100" x2="700" y2="100" class="s-crane" stroke-width="1.5" stroke-dasharray="6 4"/>
+        <text x="696" y="94" font-size="12" class="t-crane" text-anchor="end">베이 넓이 합 = 100%</text>
+        <g font-size="11" class="t-muted" text-anchor="end">
+          <text x="54" y="194">0%</text><text x="54" y="149">50%</text><text x="54" y="104">100%</text><text x="54" y="59">150%</text>
+        </g>
+        <line x1="60" y1="145" x2="700" y2="145" class="s-muted" stroke-width=".5"/>
+        <line x1="60" y1="55" x2="700" y2="55" class="s-muted" stroke-width=".5"/>
+        <g font-size="11" class="t-muted" text-anchor="middle">
+          <text x="60" y="206">0일</text><text x="232" y="206">20일</text><text x="404" y="206">40일</text><text x="576" y="206">60일</text>
+        </g>
+        <text x="350" y="40" font-size="12" fill="currentColor" text-anchor="middle">최대 155% (26일)</text>
+        <text x="60" y="226" font-size="11" class="t-muted">필요 넓이 = 그날 베이에 있어야 하는 블록들의 넓이 합(블록마다 가장 넓은 층 기준)</text>
+      </svg>
+      </div>
+      <figcaption>17일부터 54일까지 38일 동안 필요한 넓이가 베이 넓이의 합을 넘습니다(100% 선 위). 가장 심한 26일에는 155%입니다. 블록은 울퉁불퉁한 다각형이라 베이를 빈틈없이 100% 채우는 것조차 불가능하므로, 실제로 모자라는 정도는 그림보다 큽니다.</figcaption>
+    </figure>
+    <p>학습 데이터 14개 중 10개가 이렇게 어느 시점에 100%를 넘습니다. 이런 문제에서는 누군가는 반드시 기다려야 하고, 기다리면 늦습니다. 지연은 피할 수 없고, 질문이 바뀝니다. "어떻게 다 제때 넣을까"가 아니라 <strong>"누구를 기다리게 하고, 누구를 먼저 넣을까"</strong>입니다. 1장에서 본 대로 하루 지연의 벌점이 가장 크므로, 이 문제의 승부는 줄 세우기에서 갈립니다.</p>
+    <p class="src">학습 데이터로 직접 계산했습니다. 블록의 넓이는 가장 넓은 층의 넓이로 잡았고, 돌출부 아래에 낮은 블록을 넣어 자리를 아끼는 배치는 반영하지 않았습니다. 대략의 지표로 읽어 주세요.</p>
+  </section>
+
+  <section>
+    <h2>관점: 시간까지 포함한 3차원 채우기</h2>
+    <p>1장 끝에서 본 대로, 저자는 이 문제를 (x, y, 시간) 3차원 공간의 채우기 문제로 봅니다. 작업 기간이 10일인 블록은 시간 축으로 길이 10인 기둥입니다. 기둥들이 서로 겹치지 않게, 그리고 가능한 한 시간 축의 앞쪽에 놓이도록 채우는 것이 목표입니다. 시간 축의 뒤쪽으로 밀릴수록 지연이 커지기 때문입니다.</p>
+    <p>채우기 문제를 지역 탐색으로 풀 때 흔히 쓰는 이웃은 "몇 개를 빼냈다가 다시 넣어 보기"입니다. 이 해법의 탐색도 결국 그 방식입니다. 다만 이 문제에 그대로 적용하면 두 가지 벽에 부딪히고, 저자의 통찰은 그 벽을 넘는 방법에 관한 것입니다.</p>
+  </section>
+
+  <div class="part">2부 · 세 가지 통찰</div>
+
+  <section>
+    <h2>통찰 1: 빽빽한 일정은 앞쪽부터 굳는다</h2>
+    <p>책장에 책을 빈틈없이 꽂아 놓았다고 생각해 봅니다. 한 권을 빼면 그 책 두께만큼의 틈이 생기지만, 그 틈에는 같은 두께의 책만 들어갑니다. 더 두꺼운 책을 넣으려면 옆의 책들을 함께 빼서 다시 꽂아야 합니다. 빽빽한 일정도 똑같습니다.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 240" role="img" aria-label="가로축이 시간, 세로축이 베이 안의 위치인 그림. 블록들이 빽빽하게 놓여 있다. 앞쪽 블록 하나는 뒤에 이어지는 블록들에 막혀 움직일 수 없고, 맨 끝의 블록은 뒤가 비어 있어 자유롭게 움직일 수 있다.">
+        <line x1="50" y1="205" x2="700" y2="205" class="s-line" stroke-width="1.5"/>
+        <polygon points="700,205 692,201 692,209" fill="currentColor"/>
+        <text x="696" y="224" font-size="11" class="t-muted" text-anchor="end">시간 →</text>
+        <text x="50" y="26" font-size="11" class="t-muted">↑ 베이 안의 위치</text>
+        <g stroke-width="1.2">
+          <rect x="60" y="40" width="140" height="38" class="f-bay"/>
+          <rect x="204" y="40" width="150" height="38" class="f-bay"/>
+          <rect x="358" y="40" width="130" height="38" class="f-bay"/>
+          <rect x="492" y="40" width="110" height="38" class="f-hull"/>
+          <rect x="60" y="82" width="200" height="38" class="f-crane"/>
+          <rect x="264" y="82" width="160" height="38" class="f-bay"/>
+          <rect x="428" y="82" width="150" height="38" class="f-bay"/>
+          <rect x="80" y="124" width="120" height="38" class="f-bay"/>
+          <rect x="204" y="124" width="190" height="38" class="f-bay"/>
+          <rect x="398" y="124" width="120" height="38" class="f-bay"/>
+          <rect x="60" y="166" width="170" height="38" class="f-bay"/>
+          <rect x="234" y="166" width="140" height="38" class="f-bay"/>
+          <rect x="378" y="166" width="170" height="38" class="f-bay"/>
+        </g>
+        <text x="160" y="106" font-size="12" fill="currentColor" text-anchor="middle">앞쪽 블록</text>
+        <text x="547" y="64" font-size="12" fill="currentColor" text-anchor="middle">끝쪽 블록</text>
+        <line x1="262" y1="101" x2="300" y2="101" class="s-crane" stroke-width="2"/>
+        <path d="M292,93 l16,16 M308,93 l-16,16" class="s-crane" stroke-width="2.5"/>
+        <line x1="606" y1="59" x2="650" y2="59" class="s-ok" stroke-width="2"/>
+        <polygon points="658,59 648,54 648,64" class="t-ok"/>
+        <text x="612" y="100" font-size="11" class="t-ok">뒤가 비어 있어</text>
+        <text x="612" y="115" font-size="11" class="t-ok">옮기기 쉬움</text>
+        <text x="612" y="160" font-size="11" class="t-crane">앞쪽 블록은 뒤에</text>
+        <text x="612" y="175" font-size="11" class="t-crane">이어진 블록들에 막힘</text>
+      </svg>
+      </div>
+      <figcaption>가로축이 시간, 세로축이 베이 안의 위치인 개념도입니다(위치를 한 축으로 줄여 그렸습니다). 사각형 하나가 블록 하나가 머무는 기간입니다. 주황 블록을 늦추거나 옮기면 그 뒤에 맞물려 있는 블록들이 줄줄이 영향을 받습니다. 실제로는 위치가 2차원이고 크레인 규칙까지 걸려 있어서 더 단단히 묶입니다.</figcaption>
+    </figure>
+    <p>일정의 <strong>앞쪽</strong>(일찍 들어오는 블록들)은 뒤에 오는 많은 블록과 자리와 크레인 순서로 얽혀 있어서 거의 움직일 수 없습니다. 반대로 <strong>끝쪽</strong>(가장 늦게 들어오는 블록들)은 뒤에 오는 블록이 없거나 적어서 쉽게 옮길 수 있습니다.</p>
+    <p>그래서 블록 250개를 한꺼번에 놓고 지역 탐색을 하면, 초반에 우연히 정해진 앞쪽 구조가 끝까지 남습니다. 블록을 하나 옮기는 이웃으로는 구조가 다른 좋은 해로 넘어가지 못합니다. 0장에서 본 지역 최적해에 아주 깊이 갇히는 셈입니다. 저자의 보고서는 이를 <strong>잠김</strong>(lock-in)이라고 부릅니다.</p>
+  </section>
+
+  <section>
+    <h2>통찰 2: 조금씩 늘려 가면 모든 블록이 한 번은 끝자리에 선다</h2>
+    <p>잠김에 대한 저자의 답은 블록을 한꺼번에 넣지 않는 것입니다. 정해진 순서대로 20개쯤만 먼저 넣고, 그 20개의 일정을 지역 탐색으로 충분히 고칩니다. 그다음 20개를 추가하고, 이번에는 40개 전체를 고칩니다. 이렇게 끝까지 갑니다.</p>
+    <p>이 방식을 <strong>롤링 호라이즌</strong>(rolling horizon)이라고 부릅니다. 호라이즌은 원래 지평선, 곧 "한 번에 내다보는 범위"라는 뜻입니다. 긴 계획을 한꺼번에 세우지 않고 범위를 조금씩 넓혀 가며(rolling) 세운다는 말입니다. 이 책에서는 블록을 한 번 추가하고 고치는 <strong>한 단계</strong>를 호라이즌이라고 부릅니다. "3번째 호라이즌"은 세 번째로 블록을 추가한 단계입니다.</p>
+    <ul class="plain">
+      <li><strong>모든 블록이 한 번은 끝쪽에 있습니다.</strong> 새로 들어온 블록은 그 시점의 일정에서 맨 뒤이므로, 뒤에 얽힌 블록이 거의 없는 상태에서 좋은 자리를 찾을 기회를 얻습니다.</li>
+      <li><strong>문제가 작아서 많이 시도할 수 있습니다.</strong> 블록이 40개일 때는 250개일 때보다 한 번 고쳐 보는 계산이 훨씬 쌉니다.</li>
+      <li><strong>앞의 결정을 얼리지 않습니다.</strong> 먼저 놓은 블록도 계속 움직일 수 있어서, 뒤에 들어온 블록에 맞춰 고칠 수 있습니다.</li>
+    </ul>
+    <p>블록의 일부만 놓고 푸는 것이 왜 말이 될까요? 1장에서 기억해 두자고 한 성질 때문입니다. <strong>Z₁(지연)과 Z₃(선호)는 블록마다 따로 계산해 더하는 값</strong>입니다. 그래서 지금 들어와 있는 40개의 지연과 선호를 줄이는 것은 그대로 전체 문제의 값을 줄이는 일입니다. 모든 블록이 배정되어야 의미가 있는 Z₂(작업량 균형)만 예외이고, 이것은 마지막 호라이즌에서만 계산에 넣습니다(w₂를 그때만 켠다고 말하겠습니다).</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 215" role="img" aria-label="블록 250개 문제에서 13개 호라이즌에 배분되는 시간. 누적 블록 수의 제곱에 비례해서 0.3초부터 59.7초까지 늘어난다.">
+        <text x="50" y="18" font-size="12" class="t-muted">호라이즌별 배분 시간(초). 블록 250개, 솔버에 300초를 줬을 때의 명목 값</text>
+        <line x1="45" y1="165" x2="705" y2="165" class="s-line" stroke-width="1.5"/>
+        <g class="f-steel" stroke-width="1">
+          <rect x="50" y="164.4" width="36" height="0.6"/><rect x="100" y="162.2" width="36" height="2.8"/><rect x="150" y="158.8" width="36" height="6.2"/>
+          <rect x="200" y="154" width="36" height="11"/><rect x="250" y="147.4" width="36" height="17.6"/><rect x="300" y="139.8" width="36" height="25.2"/>
+          <rect x="350" y="130.6" width="36" height="34.4"/><rect x="400" y="120.2" width="36" height="44.8"/><rect x="450" y="107.8" width="36" height="57.2"/>
+          <rect x="500" y="94.6" width="36" height="70.4"/><rect x="550" y="80" width="36" height="85"/><rect x="600" y="63.8" width="36" height="101.2"/>
+          <rect x="650" y="45.6" width="36" height="119.4"/>
+        </g>
+        <g font-size="11" fill="currentColor" text-anchor="middle">
+          <text x="68" y="159">0.3</text><text x="118" y="157">1.4</text><text x="168" y="154">3.1</text><text x="218" y="149">5.5</text>
+          <text x="268" y="142">8.8</text><text x="318" y="135">12.6</text><text x="368" y="126">17.2</text><text x="418" y="115">22.4</text>
+          <text x="468" y="103">28.6</text><text x="518" y="90">35.2</text><text x="568" y="75">42.5</text><text x="618" y="59">50.6</text><text x="668" y="41">59.7</text>
+        </g>
+        <g font-size="11" class="t-muted" text-anchor="middle">
+          <text x="68" y="181">19</text><text x="118" y="181">38</text><text x="168" y="181">57</text><text x="218" y="181">76</text><text x="268" y="181">96</text>
+          <text x="318" y="181">115</text><text x="368" y="181">134</text><text x="418" y="181">153</text><text x="468" y="181">173</text><text x="518" y="181">192</text>
+          <text x="568" y="181">211</text><text x="618" y="181">230</text><text x="668" y="181">250</text>
+        </g>
+        <text x="50" y="202" font-size="11" class="t-muted">막대 아래 숫자: 그 호라이즌까지 들어온 블록 수</text>
+      </svg>
+      </div>
+      <figcaption>블록 250개는 ⌈250 ÷ 20⌉ = 13개 호라이즌으로 고르게 나뉩니다. 막대 높이는 그 호라이즌에 쓰는 시간이고, 그때까지 들어온 블록 수의 제곱에 비례하게 나눕니다. 첫 호라이즌은 0.3초, 마지막은 59.7초입니다. 뒤로 갈수록 문제가 크고, 한 번 고쳐 보는 계산이 비싸고, 최종 점수에 가깝기 때문입니다.</figcaption>
+    </figure>
+    <p>그런데 롤링 호라이즌을 쓰려면 먼저 정해야 할 것이 있습니다. <strong>어떤 순서로 블록을 추가할 것인가</strong>입니다.</p>
+  </section>
+
+  <section>
+    <h2>통찰 3: 좋은 투입 순서는 간단한 규칙으로 나오지 않는다</h2>
+    <p>순서를 정할 때 고려할 것이 셋인데, 서로 부딪칩니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>관점</th><th>먼저 넣어야 하는 블록</th><th>이유</th></tr></thead>
+      <tbody>
+        <tr><td>일정</td><td>급한 블록 (납기가 빠른 것)</td><td>늦게 넣으면 바로 지연</td></tr>
+        <tr><td>채우기</td><td>큰 블록</td><td>빈 공간이 넉넉할 때 넣어야 들어감. 작은 블록은 나중에도 틈에 들어감. 여행 가방에 큰 짐부터 넣는 것과 같음</td></tr>
+        <tr><td>목적 함수</td><td>작은 블록 여러 개</td><td>지연 벌점은 크기와 무관하게 하루에 1이므로, 같은 자리로 여러 개를 제때 내보내는 편이 이득</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>둘째와 셋째가 정면으로 충돌합니다. 숫자로 보면 이렇습니다. 블록 B1, B2, B3이 모두 0일에 들어올 수 있고 작업 기간 10일, 납기 10일입니다. 베이에는 큰 블록 B1 하나만 들어가거나, 작은 블록 B2와 B3 둘이 함께 들어갑니다.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 215" role="img" aria-label="두 가지 순서의 비교. 큰 블록 B1을 먼저 넣으면 B2와 B3이 각각 10일 늦어 지연 합이 20이다. 작은 블록 B2와 B3을 먼저 넣으면 B1만 10일 늦어 지연 합이 10이다.">
+        <text x="20" y="20" font-size="13" font-weight="700" fill="currentColor">큰 블록 먼저</text>
+        <g font-size="12" fill="currentColor"><text x="90" y="49" text-anchor="end">B1</text><text x="90" y="71" text-anchor="end">B2</text><text x="90" y="93" text-anchor="end">B3</text></g>
+        <rect x="100" y="36" width="140" height="18" class="f-steel" stroke-width="1.2"/>
+        <rect x="240" y="58" width="140" height="18" class="f-crane" stroke-width="1.2"/>
+        <rect x="240" y="80" width="140" height="18" class="f-crane" stroke-width="1.2"/>
+        <line x1="240" y1="30" x2="240" y2="104" class="s-line" stroke-width="1.5" stroke-dasharray="4 3"/>
+        <text x="410" y="71" font-size="13" fill="currentColor">지연 합 = 0 + 10 + 10 = <tspan font-weight="700">20</tspan></text>
+
+        <text x="20" y="128" font-size="13" font-weight="700" fill="currentColor">작은 블록들 먼저</text>
+        <g font-size="12" fill="currentColor"><text x="90" y="157" text-anchor="end">B1</text><text x="90" y="179" text-anchor="end">B2</text><text x="90" y="201" text-anchor="end">B3</text></g>
+        <rect x="240" y="144" width="140" height="18" class="f-crane" stroke-width="1.2"/>
+        <rect x="100" y="166" width="140" height="18" class="f-steel" stroke-width="1.2"/>
+        <rect x="100" y="188" width="140" height="18" class="f-steel" stroke-width="1.2"/>
+        <line x1="240" y1="138" x2="240" y2="212" class="s-line" stroke-width="1.5" stroke-dasharray="4 3"/>
+        <text x="410" y="179" font-size="13" fill="currentColor">지연 합 = 10 + 0 + 0 = <tspan font-weight="700">10</tspan></text>
+        <g font-size="11" class="t-muted" text-anchor="middle"><text x="100" y="30">0일</text><text x="240" y="24">납기 10일</text><text x="380" y="30">20일</text></g>
+      </svg>
+      </div>
+      <figcaption>두 가지 순서의 비교입니다. 파랑은 제때 끝난 블록, 주황은 늦은 블록입니다. 큰 블록을 먼저 넣으면 지연 합이 20, 작은 블록 둘을 먼저 넣으면 10입니다. 지연만 보면 작은 블록 둘이 먼저입니다. 하지만 채우기 관점에서는 큰 블록을 먼저 넣어야 좋은 자리를 차지하기 쉽습니다.</figcaption>
+    </figure>
+    <p>0장의 한 칸짜리 작업장 문제에서 "납기가 빠른 순"이 최적이 아니었던 것과 같은 현상입니다. 실제로는 여기에 작업 기간, 베이별 크기와 선호, 수백 개 블록 사이의 경쟁이 얽힙니다. "납기 빠른 순"이나 "큰 것 먼저" 같은 한 줄짜리 규칙으로는 이 균형을 잡을 수 없습니다. 참고로 대회가 참가자에게 예시로 제공한 기본 알고리즘이 납기 빠른 순으로 놓는 방식입니다.</p>
+  </section>
+
+  <section>
+    <h2>해결: 모양을 지우고 먼저 풀어 본다</h2>
+    <p>이삿짐을 트럭에 실을 계획을 세운다고 합시다. 처음부터 상자 하나하나의 정확한 모양을 맞춰 가며 계획하는 사람은 없습니다. 먼저 "이 트럭에는 부피로 이만큼 들어간다"는 어림셈으로 어느 짐을 어느 트럭에 언제 실을지 정하고, 실제로 쌓는 것은 그다음에 합니다.</p>
+    <p>저자도 같은 방법을 씁니다. 순서를 규칙으로 정하지 않고, 문제를 단순하게 바꿔서 한 번 풀어 본 결과에서 순서를 얻습니다. 이것이 <strong>추상 사전최적화</strong>(abstract preoptimization)입니다. "추상"은 모양 같은 세부를 지웠다는 뜻이고, "사전"은 본 탐색보다 먼저 한다는 뜻입니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th></th><th>원래 문제</th><th>단순하게 바꾼 문제(추상 문제)</th></tr></thead>
+      <tbody>
+        <tr><td>블록</td><td>층마다 다른 다각형</td><td>숫자 하나(대략 차지하는 넓이)</td></tr>
+        <tr><td>정하는 것</td><td>베이, 방향, 좌표, 입고·출고 시각</td><td>베이, 입고 시각</td></tr>
+        <tr><td>공간에 관한 제약</td><td>같은 높이 겹침 금지(규칙 A), 크레인 규칙(규칙 B)</td><td>날마다, 베이 안 블록들의 넓이 합이 베이의 넓이를 넘지 않는다</td></tr>
+        <tr><td>목적 함수</td><td>w₁Z₁ + w₂Z₂ + w₃Z₃</td><td>같은 식에 작은 벌점 하나를 더한 것(3장)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>추상 문제에는 다각형 계산이 없어서 아주 빨리 풀립니다. 블록 전체를 대상으로 몇 초 동안 풀면 블록마다 <strong>추상 베이</strong>와 <strong>추상 입고 시각</strong>이 나옵니다. 이 결과를 <strong>추상 일정</strong>이라고 부르겠습니다. 추상 일정에는 "자리가 모자랄 때 누가 양보하는 것이 전체 지연을 가장 줄이는가"에 대한 답이 이미 들어 있습니다. 앞의 B1, B2, B3 예라면 셋이 동시에 들어갈 넓이가 없으므로, 지연 합이 작은 쪽인 "B1을 10일로 미루는 일정"을 찾게 됩니다.</p>
+    <p>이 추상 입고 시각이 빠른 순으로 블록을 줄 세운 것이 투입 순서입니다. 정렬의 기준은 세 겹입니다(여러 기준으로 정렬하는 법은 0장).</p>
+<pre><span class="c"># 투입 순서 만들기</span>
+순서 = 모든 블록을 아래 기준으로 정렬
+    ① 추상 입고 시각이 빠른 블록이 앞
+    ② ①이 같으면 부피(넓이 × 작업 기간)가 큰 블록이 앞
+    ③ 그래도 같으면 번호가 작은 블록이 앞</pre>
+    <p class="src"><span class="mono">src/solver/optimize.rs:232</span>. ②의 넓이는 블록의 모든 층을 겹쳐 그렸을 때 덮이는 넓이입니다(3장에서 정확히 정의).</p>
+    <p>세 가지 관점이 이 정렬 하나에 다 들어 있습니다. 일정과 목적 함수의 균형은 ①의 추상 입고 시각이 맡고, 채우기 관점(큰 것 먼저)은 같은 날 들어오는 블록 사이에서만 ②로 반영합니다.</p>
+    <div class="note">
+      <p><strong>추상 일정은 "답"이 아니라 "참고"입니다.</strong></p>
+      <p>넓이의 합이 베이 넓이 이하라고 해서 그 블록들을 실제로 겹치지 않게 놓을 수 있다는 보장은 없습니다. 그래서 2단계는 추상 일정을 그대로 따르지 않습니다. 2단계가 추상 일정에서 가져다 쓰는 것은 두 가지뿐입니다.</p>
+      <p>첫째, 추상 입고 시각의 <strong>순서</strong>(위의 정렬). 둘째, "추상 일정대로라면 이 블록이 며칠 늦는가"라는 숫자 하나. 새 블록의 자리를 찾을 때 "이만큼만 늦는 자리가 나오면 충분하다"는 기준으로 씁니다(5장).</p>
+      <p>실제 베이, 방향, 좌표, 시각은 모두 2단계가 실제 배치를 보고 다시 정합니다. 추상 베이와 다른 베이에 들어가도 되고, 추상 입고 시각보다 일찍 들어가도 됩니다.</p>
+    </div>
+  </section>
+
+  <div class="part">3부 · 전체 구조</div>
+
+  <section>
+    <h2>흐름 한눈에 보기</h2>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 720 215" role="img" aria-label="전체 흐름. 입력에서 사전계산, 1단계 추상 사전최적화를 거쳐 투입 순서가 나오고, 2단계 롤링 호라이즌에서 호라이즌마다 확장과 병렬 SA를 반복한 뒤, 후보 해를 출력하고 검증한다.">
+        <defs>
+          <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker>
+        </defs>
+        <rect x="14" y="68" width="86" height="50" class="f-bay" stroke-width="1.2"/>
+        <text x="57" y="90" font-size="12" fill="currentColor" text-anchor="middle">입력 JSON</text>
+        <text x="57" y="106" font-size="10" class="t-muted" text-anchor="middle">lib.rs</text>
+        <line x1="100" y1="93" x2="126" y2="93" class="s-line" stroke-width="1.5" marker-end="url(#ah2)"/>
+        <rect x="128" y="68" width="100" height="50" class="f-bay" stroke-width="1.2"/>
+        <text x="178" y="90" font-size="12" fill="currentColor" text-anchor="middle">사전계산</text>
+        <text x="178" y="106" font-size="10" class="t-muted" text-anchor="middle">precompute · collision</text>
+        <line x1="228" y1="93" x2="254" y2="93" class="s-line" stroke-width="1.5" marker-end="url(#ah2)"/>
+        <rect x="256" y="60" width="130" height="66" class="f-steel" stroke-width="1.5"/>
+        <text x="321" y="82" font-size="12" font-weight="700" fill="currentColor" text-anchor="middle">1단계</text>
+        <text x="321" y="98" font-size="12" fill="currentColor" text-anchor="middle">추상 사전최적화</text>
+        <text x="321" y="114" font-size="10" class="t-muted" text-anchor="middle">preoptimize.rs</text>
+        <line x1="386" y1="93" x2="446" y2="93" class="s-line" stroke-width="1.5" marker-end="url(#ah2)"/>
+        <text x="416" y="85" font-size="11" fill="currentColor" text-anchor="middle">투입 순서</text>
+        <rect x="448" y="26" width="258" height="134" class="f-hull" stroke-width="1.5"/>
+        <text x="577" y="46" font-size="12" font-weight="700" fill="currentColor" text-anchor="middle">2단계 · 롤링 호라이즌</text>
+        <text x="577" y="60" font-size="10" class="t-muted" text-anchor="middle">optimize.rs</text>
+        <rect x="462" y="70" width="104" height="48" class="f-bay" stroke-width="1.2"/>
+        <text x="514" y="90" font-size="12" fill="currentColor" text-anchor="middle">확장</text>
+        <text x="514" y="106" font-size="10" class="t-muted" text-anchor="middle">새 블록 20개 삽입</text>
+        <line x1="566" y1="94" x2="586" y2="94" class="s-line" stroke-width="1.5" marker-end="url(#ah2)"/>
+        <rect x="588" y="70" width="104" height="48" class="f-bay" stroke-width="1.2"/>
+        <text x="640" y="90" font-size="12" fill="currentColor" text-anchor="middle">병렬 SA</text>
+        <text x="640" y="106" font-size="10" class="t-muted" text-anchor="middle">들어온 블록 전체 개선</text>
+        <path d="M640,118 v22 h-126 v-20" class="s-line" stroke-width="1.5" marker-end="url(#ah2)"/>
+        <text x="577" y="153" font-size="11" fill="currentColor" text-anchor="middle">호라이즌마다 반복</text>
+        <line x1="577" y1="160" x2="577" y2="182" class="s-line" stroke-width="1.5" marker-end="url(#ah2)"/>
+        <text x="577" y="200" font-size="12" fill="currentColor" text-anchor="middle">후보 해 출력 → 파이썬 쪽에서 검증 후 반환</text>
+        <text x="321" y="146" font-size="11" class="t-muted" text-anchor="middle">시간: 제한의 10%, 최대 10초</text>
+        <text x="178" y="146" font-size="11" class="t-muted" text-anchor="middle">시작할 때 한 번</text>
+      </svg>
+      </div>
+      <figcaption>전체 흐름입니다. 상자 아래의 작은 글씨(<span class="mono">preoptimize.rs</span> 등)는 원래 프로그램의 파일 이름입니다. 시간의 대부분은 2단계에 씁니다. 1단계는 길어야 10초이지만, 2단계가 어느 방향으로 탐색할지를 정합니다.</figcaption>
+    </figure>
+    <p>그림에 나오는 말을 정리합니다. 각각 뒤의 장에서 자세히 다룹니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>말</th><th>뜻</th><th>다루는 장</th></tr></thead>
+      <tbody>
+        <tr><td>사전계산</td><td>탐색 중에 계속 쓰일 도형 정보를 시작할 때 한 번 만들어 두는 일. 특히 "두 블록이 어떤 위치 관계일 때 부딪히는가"를 표로 만들어 둔다</td><td>4장</td></tr>
+        <tr><td>추상 사전최적화</td><td>1단계. 모양을 지운 문제를 풀어 투입 순서를 얻는다</td><td>3장</td></tr>
+        <tr><td>탐욕 삽입</td><td>블록 하나를, 이미 놓인 블록들은 그대로 둔 채 "지금 가장 좋은 자리"에 넣는 일. 0장의 탐욕법을 블록 넣기에 쓴 것</td><td>5장</td></tr>
+        <tr><td>확장</td><td>호라이즌을 시작할 때 새 블록 20개쯤을 지금의 일정에 끼워 넣는 일. 탐욕 삽입으로 한다</td><td>6장</td></tr>
+        <tr><td>SA</td><td>담금질 기법(simulated annealing). 지역 탐색에 "가끔은 나빠지는 변화도 받아들인다"는 규칙을 더해 지역 최적해에서 빠져나오게 한 방법. 이 책에서는 줄여서 SA라고 부른다</td><td>3장, 7장</td></tr>
+        <tr><td>병렬 SA</td><td>워커 4개가 각자 자기 일정을 들고 동시에 SA를 돌리고, 가끔 좋은 일정을 서로 나누는 것</td><td>7장</td></tr>
+        <tr><td>후보 해</td><td>솔버가 탐색 도중과 끝에 내놓는 해. 파이썬 쪽에서 규칙을 지켰는지 검사해 가장 좋은 것을 제출한다</td><td>6장</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>전체 절차를 글로 쓰면 이렇습니다.</p>
+<pre><span class="c"># 솔버 전체 (src/solver.rs:36)</span>
+마감 = 제한 시간 - 2초                       <span class="c"># 여유를 두고 끝낸다</span>
+사전계산을 한다                              <span class="c"># 4장</span>
+추상 일정 = 추상 사전최적화()                <span class="c"># 1단계, 3장. 시간은 min(제한 시간의 10%, 10초)</span>
+최선의 일정 = 롤링 호라이즌(추상 일정, 마감)  <span class="c"># 2단계, 5~7장</span>
+최선의 일정을 내보낸다</pre>
+    <p>2단계의 뼈대는 호라이즌에 대한 반복문 하나입니다.</p>
+<pre><span class="c"># 2단계: 롤링 호라이즌 (src/solver/optimize.rs:412)</span>
+순서 = 투입 순서 만들기(추상 일정)
+호라이즌들 = 순서를 앞에서부터 20개쯤씩 고르게 자른 것
+워커별 일정 = [빈 일정, 빈 일정, 빈 일정, 빈 일정]     <span class="c"># 워커 4개가 각자 자기 일정을 들고 간다</span>
+for 호라이즌 in 호라이즌들:
+    w2 = 문제의 w2 (마지막 호라이즌일 때) 또는 0 (그 밖)
+    이번 마감 = 남은 시간을 (그때까지 들어온 블록 수)² 에 비례해 나눈 몫
+    <span class="c"># 확장: 워커마다 새 블록들을 자기 일정에 끼워 넣는다 (이번 시간의 5%, 최대 5초)</span>
+    워커별 일정 = 각 워커가 동시에 확장(자기 일정, 이번 호라이즌의 새 블록들)
+    <span class="c"># 개선: 지금까지 들어온 모든 블록을 대상으로 병렬 SA (이번 마감까지)</span>
+    워커별 일정 = 병렬 SA(워커별 일정, 이번 마감, w2)
+return 가장 좋은 일정</pre>
+    <p>남은 시간을 호라이즌이 시작될 때마다 다시 계산하므로, 앞 단계가 시간을 조금 넘겨도 전체 마감은 지켜집니다.</p>
+  </section>
+
+  <section>
+    <h2>부품이 쌓이는 순서와 이 책의 순서</h2>
+    <p>부품들은 아래에서 위로 쌓입니다. 맨 아래에 "두 블록이 부딪히는 위치의 표"가 있고(4장), 그 표를 읽어 블록 하나의 자리를 찾는 탐욕 삽입이 있고(5장), 탐욕 삽입을 써서 일정을 고치는 이웃들이 있고(7장), 이웃을 쓰는 SA가 있고, SA를 롤링 호라이즌이 호라이즌마다 부릅니다(6장).</p>
+    <p>이 책은 그 순서대로 올라갑니다. 다만 1단계인 추상 사전최적화는 다각형 계산을 쓰지 않아 4~6장의 내용 없이 읽을 수 있으므로 3장에서 먼저 다룹니다. SA도 추상 사전최적화에서 처음 쓰이므로, SA의 원리는 3장에서 배우고 7장에서 2단계의 SA를 자세히 봅니다.</p>
+  </section>
+
+  <section>
+    <h2>세 아이디어의 역할과 효과</h2>
+    <p>저자는 아이디어를 하나씩 뺀 솔버를 만들어 같은 문제들을 풀게 하고, 목적 함수 값의 합이 얼마나 나빠지는지를 쟀습니다. 이런 실험을 제거 실험이라고 합니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>아이디어</th><th>맡은 일</th><th>뺐을 때 목적 함수 값의 합</th></tr></thead>
+      <tbody>
+        <tr><td>추상 사전최적화</td><td>전체를 보고 좋은 투입 순서를 정함. 탐색을 유망한 곳에서 시작하게 함</td><td>10.3% 나빠짐 (납기 순 투입으로 바꿨을 때)</td></tr>
+        <tr><td>롤링 호라이즌</td><td>모든 블록에게 끝자리에서 자리를 찾을 기회를 줌. 잠김을 줄임</td><td>10.7% 나빠짐 (한 번에 전부 넣었을 때)</td></tr>
+        <tr><td>큰 재구성 이웃</td><td>이미 빽빽해진 부분에서 블록 7~13개를 한꺼번에 빼고 다시 넣어 구조를 바꿈(7장)</td><td>10.5% 나빠짐</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>저자는 이를 지형에 비유합니다(0장의 골짜기 그림을 떠올리면 됩니다). 롤링 호라이즌이 없으면 골짜기 바닥까지 내려갈 힘이 부족합니다. 사전최적화가 없으면 바닥까지는 내려가지만 엉뚱한 골짜기에서 내려갑니다. 둘이 함께 있어야 좋은 골짜기 근처에서 출발해 바닥까지 닿습니다.</p>
+    <p>본선 평가에서는 8문제 중 7문제에서 다른 모든 본선 팀보다 좋은 값을 냈고, 다른 팀 중 최고 기록과 비교해 평균 5.3% 낮았습니다.</p>
+    <p class="src">학습용 40문제, 300초, 코어 4개, 설정마다 1회 실행한 결과입니다. 위의 두 줄은 저자의 기술 보고서의 표(448.3M에서 494.3M, 496.4M으로)이고, 셋째 줄은 최종 발표 자료의 그래프(430.3M에서 475.6M으로)입니다. 두 자료는 실험에 쓴 솔버의 버전이 달라 기준값이 다릅니다. 문제별 수치는 8장에서 다룹니다. 해설자는 솔버를 실행할 수 없어 직접 재현하지는 못했습니다.</p>
+  </section>
+
+  <section>
+    <h2>더 알고 싶다면: 소스 파일 지도</h2>
+    <p>원래 프로그램을 직접 읽어 보려는 사람을 위한 표입니다. Rust 코드 약 6,000줄이고, <span class="mono">src/</span> 폴더에 있습니다.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>파일 (src/)</th><th>줄 수</th><th>역할</th><th>다루는 장</th></tr></thead>
+      <tbody>
+        <tr><td><span class="mono">lib.rs</span>, <span class="mono">solver/objective.rs</span></td><td>182, 46</td><td>입력·출력의 모양, 목적 함수</td><td>1장</td></tr>
+        <tr><td><span class="mono">solver.rs</span></td><td>99</td><td>전체 흐름</td><td>2장</td></tr>
+        <tr><td><span class="mono">solver/preoptimize.rs</span></td><td>948</td><td>1단계: 추상 사전최적화</td><td>3장</td></tr>
+        <tr><td><span class="mono">solver/precompute.rs</span>, <span class="mono">solver/collision.rs</span></td><td>267, 953</td><td>사전계산, 부딪히는 위치의 표</td><td>4장</td></tr>
+        <tr><td><span class="mono">solver/placement_scan.rs</span>, <span class="mono">solver/insert.rs</span></td><td>619, 197</td><td>한 행 훑기, 탐욕 삽입</td><td>5장</td></tr>
+        <tr><td><span class="mono">solver/optimize.rs</span>, <span class="mono">solver/output.rs</span></td><td>518, 137</td><td>2단계: 롤링 호라이즌, 해 내보내기</td><td>6장</td></tr>
+        <tr><td><span class="mono">solver/annealing.rs</span>, <span class="mono">solver/neighbors.rs</span>, <span class="mono">solver/reconstruct.rs</span></td><td>564, 227, 662</td><td>SA의 뼈대, 작은 이웃, 큰 재구성</td><td>7장</td></tr>
+        <tr><td><span class="mono">params.rs</span></td><td>249</td><td>파라미터 정의 (값은 <span class="mono">params/default.yaml</span>)</td><td>각 장</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>이해 확인</h2>
+    <details>
+      <summary>블록이 130개인 문제는 호라이즌이 몇 개인가요?</summary>
+      <p>⌈130 ÷ 20⌉ = ⌈6.5⌉ = 7개입니다. 130개를 7개 호라이즌에 고르게 나누므로 한 호라이즌에 18개나 19개씩 들어갑니다.</p>
+    </details>
+    <details>
+      <summary>롤링 호라이즌에서 3번째 호라이즌의 SA는 어떤 블록들을 움직일 수 있나요?</summary>
+      <p>1~3번째 호라이즌에서 들어온 블록 전부입니다. 새로 들어온 20개만이 아닙니다. 앞에서 놓은 블록을 얼리지 않는다는 점이 이 해법의 특징입니다.</p>
+    </details>
+    <details>
+      <summary>추상 사전최적화가 블록 A의 입고 시각을 15일, 베이를 2번으로 냈습니다. 최종 해에서 A는 반드시 베이 2에 15일 이후에 들어가나요?</summary>
+      <p>아니요. 15일이라는 값은 A가 몇 번째로 투입될지를 정하는 데 쓰이고, 그 밖에는 "15일에 넣었다면 며칠 늦는가"라는 값이 A의 자리를 찾을 때 "이 정도면 충분하다"의 기준으로 쓰일 뿐입니다. 베이 2라는 값은 쓰이지 않습니다. 실제 베이와 시각은 실제 배치에서 가장 좋은 것을 다시 고릅니다.</p>
+    </details>
+    <details>
+      <summary>중간 호라이즌에서 w₂를 0으로 두는 이유는 무엇인가요?</summary>
+      <p>Z₂는 베이 사이의 작업량 균형인데, 블록의 일부만 들어온 상태에서는 균형을 맞출 이유가 없습니다. 아직 안 들어온 블록들이 어디로 갈지 모르기 때문입니다. 중간에 켜 두면 의미 없는 균형을 맞추느라 지연과 선호를 희생하게 됩니다.</p>
+    </details>
+    <details>
+      <summary>본문의 B1, B2, B3 예에서 납기가 모두 20일이었다면, 두 순서의 지연 합은 각각 얼마인가요?</summary>
+      <p>큰 블록 먼저: B1은 10일에 끝나 지연 0, B2와 B3은 20일에 끝나 지연 0. 합 0입니다. 작은 블록 먼저: B2, B3은 10일에, B1은 20일에 끝나 역시 합 0입니다. 자리가 넉넉하면(납기에 여유가 있으면) 순서는 문제가 되지 않습니다. 순서가 중요해지는 것은 자리가 모자랄 때입니다.</p>
+    </details>
+  </section>
+  <div class="pager"><a href="#ch1">← 이전: 1장 문제 소개</a><a href="#ch3">다음: 3장 추상 사전최적화 →</a></div>
+</article>
